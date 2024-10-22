@@ -59,8 +59,10 @@ impl Mul<f64> for Variable {
     type Output = LinearTerm;
 
     fn mul(self, rhs: f64) -> LinearTerm {
+        let variable_rc = Rc::new(self);
+        
         LinearTerm {
-            variable: Rc::new(self),
+            variable: Rc::clone(&variable_rc),
             coefficient: rhs,
         }
     }
@@ -82,7 +84,7 @@ impl<'a> Mul<f64> for &'a Variable {
 
     fn mul(self, rhs: f64) -> LinearTerm {
         LinearTerm {
-            variable: Rc::clone(&Rc::new(self.clone())),
+            variable: Rc::new(self.clone()),
             coefficient: rhs,
         }
     }
@@ -93,7 +95,7 @@ impl<'a> Div<f64> for &'a Variable {
 
     fn div(self, rhs: f64) -> LinearTerm {
         LinearTerm {
-            variable: Rc::clone(&Rc::new(self.clone())),
+            variable: Rc::new(self.clone()),
             coefficient: 1.0 / rhs,
         }
     }
