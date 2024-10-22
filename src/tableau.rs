@@ -160,7 +160,8 @@ impl Tableau {
         if self.column_count == 0 {
             self.column_count = 1;
         }
-        // Add a new row with all elements initialized to 0.0
+
+        // Extend the data vector with the new row initialized to 0.0
         self.data.extend(std::iter::repeat(0.0).take(self.column_count));
         self.row_count += 1;
     }
@@ -178,13 +179,13 @@ impl Tableau {
             return Err(TableauError::OutOfBounds { row: Some(index), column: None });
         }
 
-        // If the tableau is empty (no columns), initialize with 1 column by default
+        // If the tableau is empty (no columns), initialize with 1 column by default.
         if self.column_count == 0 {
             self.column_count = 1;
         }
 
+        // Preallocate a new row and splice it into the data.
         let start = index * self.column_count;
-        // Insert a new row with all elements initialized to 0.0
         self.data.splice(start..start, std::iter::repeat(0.0).take(self.column_count));
         self.row_count += 1;
         Ok(())
@@ -209,8 +210,10 @@ impl Tableau {
             return Err(TableauError::VectorLengthMismatch);
         }
 
-        // Extend the data vector with the new row's values
-        self.data.extend(values);
+        // Extend the data vector with the new row's values in one step
+        self.data.extend_from_slice(&values);
+
+        // Update the row count
         self.row_count += 1;
         Ok(())
     }
@@ -268,14 +271,22 @@ impl Tableau {
         // If the tableau is empty (no rows and no columns), initialize with 1 row by default.
         if self.row_count == 0 {
             self.row_count = 1;
-            self.data.extend(std::iter::repeat(0.0).take(1)); // Initialize with one 0.0 value
+            self.data.push(0.0); // Initialize with one 0.0 value
+            self.column_count = 1;
+            return;
         }
 
-        // Add a new column to each row, initializing each element to 0.0
+        // Resize the vector to accommodate the new column.
+        let new_size = self.row_count * (self.column_count + 1);
+        self.data.resize(new_size, 0.0);
+
+        // Shift elements to make space for the new column
         for row in (0..self.row_count).rev() {
-            let idx = self.index(row, self.column_count);
-            self.data.insert(idx, 0.0);
+            let old_idx = self.index(row, self.column_count);
+            let new_idx = self.index(row, self.column_count + 1);
+            self.data.copy_within(old_idx..old_idx + self.column_count, new_idx - self.column_count);
         }
+
         self.column_count += 1;
     }
 
@@ -296,13 +307,27 @@ impl Tableau {
         if self.row_count == 0 {
             self.row_count = 1;
             self.data.extend(std::iter::repeat(0.0).take(1)); // Add one 0.0 for the single row
+            self.column_count = 1;
         }
 
-        // Insert a new column with 0.0 at the specified index for all rows
+        // Resize the vector to accommodate the new column.
+        let new_size = self.row_count * (self.column_count + 1);
+        self.data.resize(new_size, 0.0);
+
+        // Shift existing data to make room for the new column
         for row in (0..self.row_count).rev() {
-            let idx = self.index(row, index);
-            self.data.insert(idx, 0.0);
+            // Compute old and new indices before accessing self.data
+            let old_idx = self.index(row, self.column_count);
+            let new_idx = self.index(row, self.column_count + 1);
+
+            // Copy elements within the data vector to shift the row right by one position
+            self.data.copy_within(old_idx..old_idx + self.column_count, new_idx - self.column_count);
+
+            // Set the new value in the new column at the given row (initialize to 0.0)
+            let insert_idx = self.index(row, index);
+            self.data[insert_idx] = 0.0;
         }
+
         self.column_count += 1;
         Ok(())
     }
@@ -320,6 +345,7 @@ impl Tableau {
         if self.row_count == 0 {
             self.row_count = values.len();
             self.data.extend(std::iter::repeat(0.0).take(self.row_count)); // Initialize the first column with 0.0
+            self.column_count = 1; // Set initial column count to 1
         }
 
         // Check if the number of values matches the current row count
@@ -327,11 +353,26 @@ impl Tableau {
             return Err(TableauError::VectorLengthMismatch);
         }
 
-        // Insert the new column with the provided values
+        // Resize the vector to accommodate the new column
+        let new_size = self.row_count * (self.column_count + 1);
+        self.data.resize(new_size, 0.0);
+
+        // Shift elements to the right to make space for the new column
         for row in (0..self.row_count).rev() {
-            let idx = self.index(row, self.column_count);
-            self.data.insert(idx, values[row]);
+            // Compute old and new indices before accessing self.data
+            let old_idx = self.index(row, self.column_count);
+            let new_idx = self.index(row, self.column_count + 1);
+
+            // Shift the row elements to the right to make space for the new column
+            self.data.copy_within(old_idx..old_idx + self.column_count, new_idx - self.column_count);
+
+            // Compute the index where the new value should be inserted
+            let insert_idx = self.index(row, self.column_count);
+
+            // Insert the new value from the provided values vector
+            self.data[insert_idx] = values[row];
         }
+
         self.column_count += 1;
         Ok(())
     }
