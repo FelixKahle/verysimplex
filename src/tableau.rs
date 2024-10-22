@@ -20,9 +20,6 @@ pub struct Tableau {
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum TableauError {
-    /// The provided vector length does not match the expected length.
-    VectorLengthMismatch,
-
     /// Indicates that the specified row or column is out of bounds.
     /// `row` and `column` specify which index caused the error.
     OutOfBounds { row: Option<usize>, column: Option<usize> },
