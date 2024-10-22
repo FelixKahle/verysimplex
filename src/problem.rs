@@ -2,12 +2,13 @@
 
 #![allow(dead_code)]
 
+use std::collections::HashSet;
 use std::ops::{Add, Sub, Mul, Div};
 use std::fmt::{self, Display};
 
 /// A variable in the linear program.
 /// Each variable has a name, represented as a string.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub struct Variable {
     /// The name of the variable.
     pub name: String,
@@ -286,6 +287,185 @@ impl LinearExpression {
             expression: self,
             relation: Relation::Equal,
             rhs,
+        }
+    }
+}
+
+/// Enum representing the type of the objective function in a linear program (minimize or maximize).
+#[derive(Debug, Clone, PartialEq)]
+pub enum ObjectiveType {
+    /// Minimize the objective function.
+    Minimize,
+    
+    /// Maximize the objective function.
+    Maximize,
+}
+
+impl Display for ObjectiveType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ObjectiveType::Minimize => write!(f, "Minimize"),
+            ObjectiveType::Maximize => write!(f, "Maximize"),
+        }
+    }
+}
+
+/// The objective function in a linear program, consisting of a linear expression and an objective type (minimize or maximize).
+#[derive(Debug, Clone)]
+pub struct Objective {
+    /// The type of the objective function (minimize or maximize).
+    pub objective_type: ObjectiveType,
+    
+    /// The linear expression of the objective function.
+    pub expression: LinearExpression,
+}
+
+impl Display for Objective {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: {}", self.objective_type, self.expression)
+    }
+}
+
+impl Objective {
+    /// Creates a new objective function with the given type and linear expression.
+    ///
+    /// # Arguments
+    /// - `objective_type`: The type of the objective function (minimize or maximize).
+    /// - `expression`: The linear expression of the objective function.
+    ///
+    /// # Returns
+    /// A new `Objective` object with the given type and expression.
+    pub fn new(objective_type: ObjectiveType, expression: LinearExpression) -> Objective {
+        Objective {
+            objective_type,
+            expression,
+        }
+    }
+}
+
+/// A linear program problem, consisting of a list of constraints,
+/// and an objective function that needs to be minimized or maximized.
+pub struct Problem {
+    /// The variables in the problem.
+    pub variables: Vec<Variable>,
+    
+    /// The constraints in the problem.
+    pub constraints: Vec<Constraint>,
+    
+    /// The objective function of the problem.
+    pub objective: Objective,
+}
+
+impl Problem {
+    /// Creates a new linear program problem with the given constraints and objective function.
+    ///
+    /// # Arguments
+    /// - `constraints`: The constraints in the problem.
+    /// - `objective`: The objective function of the problem.
+    ///
+    /// # Returns
+    /// A new `Problem` object with the given constraints and objective function.
+    pub fn new(constraints: Vec<Constraint>, objective: Objective) -> Problem {
+        let mut unique_variables: HashSet<Variable> = HashSet::new();
+        
+        for constraint in &constraints {
+            for term in &constraint.expression.terms {
+                unique_variables.insert(term.variable.clone());
+            }
+        }
+        
+        for term in &objective.expression.terms {
+            unique_variables.insert(term.variable.clone());
+        }
+        
+        let variables: Vec<Variable> = unique_variables.into_iter().collect();
+        
+        Problem {
+            variables,
+            constraints,
+            objective,
+        }
+    }
+    
+    /// Creates a new `ProblemBuilder` instance to build a `Problem`.
+    ///
+    /// # Returns
+    /// A new `ProblemBuilder` object to build a `Problem`.
+    pub fn builder() -> ProblemBuilder {
+        ProblemBuilder::new()
+    }
+}
+
+impl Display for Problem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for constraint in &self.constraints {
+            writeln!(f, "{}", constraint)?;
+        }
+        writeln!(f, "Objective: {}", self.objective)
+    }
+}
+
+/// Builder pattern for creating `Problem` instances.
+pub struct ProblemBuilder {
+    /// The constraints in the problem.
+    constraints: Vec<Constraint>,
+    
+    /// The objective function of the problem.
+    objective: Option<Objective>
+}
+
+/// Error type for the `ProblemBuilder`.
+#[derive(Debug, Clone)]
+pub enum ProblemBuilderError {
+    /// The objective function is missing.
+    MissingObjective,
+}
+
+impl ProblemBuilder {
+    /// Creates a new `ProblemBuilder` instance.
+    /// 
+    /// # Returns
+    /// A new `ProblemBuilder` object.
+    pub fn new() -> ProblemBuilder {
+        ProblemBuilder {
+            constraints: Vec::new(),
+            objective: None,
+        }
+    }
+
+    /// Adds a constraint to the builder.
+    ///
+    /// # Arguments
+    /// - `constraint`: The constraint to add.
+    ///
+    /// # Returns
+    /// The `ProblemBuilder` object with the constraint added.
+    pub fn add_constraint(mut self, constraint: Constraint) -> Self {
+        self.constraints.push(constraint);
+        self
+    }
+
+    /// Sets the objective function.
+    ///
+    /// # Arguments
+    /// - `objective`: The objective function to set.
+    ///
+    /// # Returns
+    /// The `ProblemBuilder` object with the objective function set.
+    pub fn set_objective(mut self, objective: Objective) -> Self {
+        self.objective = Some(objective);
+        self
+    }
+
+    /// Builds the final `Problem`, returning an error if the objective is missing.
+    ///
+    /// # Returns
+    /// A `Problem` object if the objective is set, otherwise an error message.
+    pub fn build(self) -> Result<Problem, ProblemBuilderError> {
+        if let Some(objective) = self.objective {
+            Ok(Problem::new(self.constraints, objective))
+        } else {
+            Err(ProblemBuilderError::MissingObjective)
         }
     }
 }

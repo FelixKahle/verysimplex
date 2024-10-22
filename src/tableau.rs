@@ -1,13 +1,16 @@
 // Copyright 2024 Felix Kahle. All rights reserved.
 
+use std::fmt::Display;
+use crate::problem::{ObjectiveType, Problem, Relation};
+
 /// A struct representing a tableau with a specified number of rows and columns.
 #[derive(Debug, Clone)]
 pub struct Tableau {
     /// The number of rows in the tableau.
-    row_count: usize,
+    pub row_count: usize,
     
     /// The number of columns in the tableau.
-    column_count: usize,
+    pub column_count: usize,
     
     /// The data of the tableau, stored as a flat vector.
     data: Vec<f64>,
@@ -41,6 +44,65 @@ impl Tableau {
             column_count,
             data: vec![0.0; row_count * column_count],
         }
+    }
+    
+    /// Creates a new `Tableau` from a given `Problem`.
+    ///
+    /// # Parameters
+    /// - `problem`: The `Problem` instance to create the tableau from.
+    /// 
+    /// # Returns
+    /// A `Tableau` instance representing the given `Problem`.
+    pub fn from_problem(problem: &Problem) -> Result<Self, TableauError> {
+        // Number of rows = number of constraints + 1 for the objective function
+        let row_count = problem.constraints.len() + 1;
+
+        // Number of columns = number of variables + 1 for the RHS values
+        let column_count = problem.variables.len() + 1;
+
+        // Create an empty tableau with the appropriate size
+        let mut tableau = Tableau::new(row_count, column_count);
+
+        // Fill the tableau with constraint coefficients and RHS values
+        for (i, constraint) in problem.constraints.iter().enumerate() {
+            let constraint_variable_multiplier = match constraint.relation {
+                Relation::LessThan => 1.0,
+                Relation::LessThanOrEqual => 1.0,
+                Relation::GreaterThan => -1.0,
+                Relation::GreaterThanOrEqual => -1.0,
+                Relation::Equal => 1.0, // Treat Equal as LessThanOrEqual for now
+            };
+            
+            // Set the variable coefficients for each constraint
+            for term in &constraint.expression.terms {
+                if let Some(variable_index) = problem.variables.iter().position(|v| v == &term.variable) {
+                    tableau.set(i, variable_index, term.coefficient * constraint_variable_multiplier)?;
+                }
+            }
+
+            // Set the RHS value in the last column of the tableau for this row
+            tableau.set(i, column_count - 1, constraint.rhs)?;
+        }
+        
+        // Normally we always maximize, so we multiply by -1 if we want to minimize.
+        let objective_variable_multiplier = match problem.objective.objective_type {
+            ObjectiveType::Maximize => 1.0,
+            ObjectiveType::Minimize => -1.0,
+        };
+
+        // Set the objective function coefficients in the last row of the tableau
+        let last_row = row_count - 1;
+        for term in &problem.objective.expression.terms {
+            if let Some(variable_index) = problem.variables.iter().position(|v| v == &term.variable) {
+                // Use negative coefficients because of the standard form for the tableau
+                tableau.set(last_row, variable_index, term.coefficient * -1.0 * objective_variable_multiplier)?;
+            }
+        }
+
+        // RHS for the objective function is usually set to 0
+        tableau.set(last_row, column_count - 1, 0.0)?;
+
+        Ok(tableau)
     }
 
     /// Returns the value at the specified `row` and `col`.
@@ -305,27 +367,6 @@ impl Tableau {
         true
     }
 
-    /// Prints the entire tableau in a matrix-like format.
-    ///
-    /// Each row is printed on a new line, and columns are separated by tabs.
-    ///
-    /// # Example
-    /// ```
-    /// let mut tableau = Tableau::new(2, 2);
-    /// tableau.set(0, 0, 1.0).unwrap();
-    /// tableau.set(0, 1, 2.0).unwrap();
-    /// tableau.print_tableau(); // Prints the tableau
-    /// ```
-    pub fn print_tableau(&self) {
-        for row in 0..self.row_count {
-            for col in 0..self.column_count {
-                print!("{}\t", self.data[self.index(row, col)]);
-            }
-            println!();
-        }
-        println!("Objective value: {}", self.get_objective_value().unwrap_or(0.0));
-    }
-
     /// Helper function to calculate the flat index in the `data` vector from row and column indices.
     ///
     /// # Parameters
@@ -336,5 +377,23 @@ impl Tableau {
     /// The flat index corresponding to the specified row and column.
     fn index(&self, row: usize, col: usize) -> usize {
         row * self.column_count + col
+    }
+}
+
+impl Display for Tableau {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for row in 0..self.row_count {
+            for col in 0..self.column_count {
+                write!(f, "{}\t", self.data[self.index(row, col)])?;
+            }
+            writeln!(f)?;
+        }
+        writeln!(f, "Objective value: {}", self.get_objective_value().unwrap_or(0.0))
+    }
+}
+
+impl From<Problem> for Result<Tableau, TableauError> {
+    fn from(problem: Problem) -> Self {
+        Tableau::from_problem(&problem)
     }
 }
