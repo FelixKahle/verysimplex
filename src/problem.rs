@@ -59,10 +59,8 @@ impl Mul<f64> for Variable {
     type Output = LinearTerm;
 
     fn mul(self, rhs: f64) -> LinearTerm {
-        let variable_rc = Rc::new(self);
-        
         LinearTerm {
-            variable: Rc::clone(&variable_rc),
+            variable: Rc::new(self),
             coefficient: rhs,
         }
     }
