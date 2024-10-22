@@ -121,6 +121,7 @@ impl Tableau {
         if col >= self.column_count {
             return Err(TableauError::OutOfBounds { row: None, column: Some(col) });
         }
+        
         Ok(self.data[self.index(row, col)])
     }
 
@@ -141,6 +142,7 @@ impl Tableau {
         if col >= self.column_count {
             return Err(TableauError::OutOfBounds { row: None, column: Some(col) });
         }
+        
         let idx = self.index(row, col);
         self.data[idx] = value;
         Ok(())
@@ -154,6 +156,11 @@ impl Tableau {
     /// tableau.add_row(); // Now has 3 rows
     /// ```
     pub fn add_row(&mut self) {
+        // If the tableau is empty (no rows and no columns), initialize with 1 column by default.
+        if self.column_count == 0 {
+            self.column_count = 1;
+        }
+        // Add a new row with all elements initialized to 0.0
         self.data.extend(std::iter::repeat(0.0).take(self.column_count));
         self.row_count += 1;
     }
@@ -170,7 +177,14 @@ impl Tableau {
         if index > self.row_count {
             return Err(TableauError::OutOfBounds { row: Some(index), column: None });
         }
+
+        // If the tableau is empty (no columns), initialize with 1 column by default
+        if self.column_count == 0 {
+            self.column_count = 1;
+        }
+
         let start = index * self.column_count;
+        // Insert a new row with all elements initialized to 0.0
         self.data.splice(start..start, std::iter::repeat(0.0).take(self.column_count));
         self.row_count += 1;
         Ok(())
@@ -185,9 +199,17 @@ impl Tableau {
     /// - `Ok(())` if the row is added successfully.
     /// - `Err(TableauError::VectorLengthMismatch)` if the vector size does not match the number of columns.
     pub fn add_row_with_values(&mut self, values: Vec<f64>) -> Result<(), TableauError> {
+        // If the tableau has no columns, set column_count to the length of the values
+        if self.column_count == 0 {
+            self.column_count = values.len();
+        }
+
+        // Check if the number of values matches the current column count
         if values.len() != self.column_count {
             return Err(TableauError::VectorLengthMismatch);
         }
+
+        // Extend the data vector with the new row's values
         self.data.extend(values);
         self.row_count += 1;
         Ok(())
@@ -200,9 +222,15 @@ impl Tableau {
     /// let mut tableau = Tableau::new(2, 3);
     /// tableau.remove_row(); // Now has 1 row
     /// ```
-    pub fn remove_row(&mut self) {
+    pub fn remove_row(&mut self) -> Result<(), TableauError>{
+        // Do not remove the last row if the tableau is empty
+        if self.row_count == 0 {
+            return Err(TableauError::OutOfBounds { row: Some(self.row_count - 1), column: None });
+        }
+        
         self.data.truncate(self.data.len() - self.column_count);
         self.row_count -= 1;
+        Ok(())
     }
 
     /// Removes the row at the specified `index`.
@@ -214,9 +242,14 @@ impl Tableau {
     /// - `Ok(())` if the row is removed successfully.
     /// - `Err(TableauError::OutOfBounds)` if the row index is invalid.
     pub fn remove_row_at(&mut self, index: usize) -> Result<(), TableauError> {
+        if  self.row_count == 0 {
+            return Err(TableauError::OutOfBounds { row: Some(index), column: None });
+        }
+        
         if index >= self.row_count {
             return Err(TableauError::OutOfBounds { row: Some(index), column: None });
         }
+        
         let start = index * self.column_count;
         let end = start + self.column_count;
         self.data.drain(start..end);
@@ -232,6 +265,13 @@ impl Tableau {
     /// tableau.add_column(); // Now has 4 columns
     /// ```
     pub fn add_column(&mut self) {
+        // If the tableau is empty (no rows and no columns), initialize with 1 row by default.
+        if self.row_count == 0 {
+            self.row_count = 1;
+            self.data.extend(std::iter::repeat(0.0).take(1)); // Initialize with one 0.0 value
+        }
+
+        // Add a new column to each row, initializing each element to 0.0
         for row in (0..self.row_count).rev() {
             let idx = self.index(row, self.column_count);
             self.data.insert(idx, 0.0);
@@ -251,6 +291,14 @@ impl Tableau {
         if index > self.column_count {
             return Err(TableauError::OutOfBounds { row: None, column: Some(index) });
         }
+
+        // If the tableau is empty, initialize with 1 row
+        if self.row_count == 0 {
+            self.row_count = 1;
+            self.data.extend(std::iter::repeat(0.0).take(1)); // Add one 0.0 for the single row
+        }
+
+        // Insert a new column with 0.0 at the specified index for all rows
         for row in (0..self.row_count).rev() {
             let idx = self.index(row, index);
             self.data.insert(idx, 0.0);
@@ -268,9 +316,18 @@ impl Tableau {
     /// - `Ok(())` if the column is added successfully.
     /// - `Err(TableauError::VectorLengthMismatch)` if the vector size does not match the number of rows.
     pub fn add_column_with_values(&mut self, values: Vec<f64>) -> Result<(), TableauError> {
+        // If the tableau is empty, initialize row_count to match the length of the values
+        if self.row_count == 0 {
+            self.row_count = values.len();
+            self.data.extend(std::iter::repeat(0.0).take(self.row_count)); // Initialize the first column with 0.0
+        }
+
+        // Check if the number of values matches the current row count
         if values.len() != self.row_count {
             return Err(TableauError::VectorLengthMismatch);
         }
+
+        // Insert the new column with the provided values
         for row in (0..self.row_count).rev() {
             let idx = self.index(row, self.column_count);
             self.data.insert(idx, values[row]);
@@ -286,12 +343,17 @@ impl Tableau {
     /// let mut tableau = Tableau::new(2, 3);
     /// tableau.remove_column(); // Now has 2 columns
     /// ```
-    pub fn remove_column(&mut self) {
+    pub fn remove_column(&mut self) -> Result<(), TableauError> {
+        if self.column_count == 0 {
+            return Err(TableauError::OutOfBounds { row: None, column: Some(self.column_count - 1) });
+        }
+        
         for row in (0..self.row_count).rev() {
             let idx = self.index(row, self.column_count - 1);
             self.data.remove(idx);
         }
         self.column_count -= 1;
+        Ok(())
     }
 
     /// Removes the column at the specified `index`.
@@ -303,9 +365,16 @@ impl Tableau {
     /// - `Ok(())` if the column is removed successfully.
     /// - `Err(TableauError::OutOfBounds)` if the column index is invalid.
     pub fn remove_column_at(&mut self, index: usize) -> Result<(), TableauError> {
+        // If there are no columns, return an error because there's nothing to remove
+        if self.column_count == 0 {
+            return Err(TableauError::OutOfBounds { row: None, column: Some(index) });
+        }
+
+        // If the specified index is out of bounds, return an error
         if index >= self.column_count {
             return Err(TableauError::OutOfBounds { row: None, column: Some(index) });
         }
+        
         for row in (0..self.row_count).rev() {
             let idx = self.index(row, index);
             self.data.remove(idx);
@@ -320,7 +389,7 @@ impl Tableau {
     /// - `Some(f64)` if the tableau is not empty and has at least one column.
     /// - `None` if the tableau is empty or has no columns.
     pub fn get_objective_value(&self) -> Option<f64> {
-        if self.row_count == 0 || self.column_count == 0 {
+        if self.is_empty() {
             return None; // Return None if the tableau is empty or has no columns.
         }
 
@@ -334,7 +403,7 @@ impl Tableau {
     /// - `true` if the tableau is feasible.
     /// - `false` if the tableau is not feasible.
     pub fn is_feasible(&self) -> bool {
-        if self.row_count == 0 || self.column_count == 0 {
+        if self.is_empty() {
             return false;
         }
 
@@ -354,7 +423,7 @@ impl Tableau {
     /// - `true` if the tableau is optimal.
     /// - `false` if the tableau is not optimal.
     pub fn is_optimal(&self) -> bool {
-        if self.row_count == 0 || self.column_count == 0 {
+        if self.is_empty() {
             return false;
         }
 
@@ -365,6 +434,15 @@ impl Tableau {
         }
 
         true
+    }
+    
+    /// Checks if the tableau is empty.
+    ///
+    /// # Returns
+    /// - `true` if the tableau is empty.
+    /// - `false` if the tableau is not empty.
+    pub fn is_empty(&self) -> bool {
+        self.row_count == 0 || self.column_count == 0
     }
 
     /// Helper function to calculate the flat index in the `data` vector from row and column indices.
