@@ -5,13 +5,14 @@
 use std::collections::HashSet;
 use std::ops::{Add, Sub, Mul, Div};
 use std::fmt::{self, Display};
+use std::rc::Rc;
 
 /// A variable in the linear program.
 /// Each variable has a name, represented as a string.
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub struct Variable {
     /// The name of the variable.
-    pub name: String,
+    pub name: Rc<String>,
 }
 
 impl Variable {
@@ -24,7 +25,15 @@ impl Variable {
     /// A new `Variable` object with the given name.
     pub fn new(name: &str) -> Variable {
         Variable {
-            name: name.to_string(),
+            name: Rc::new(name.to_string()),
+        }
+    }
+}
+
+impl From<&str> for Variable {
+    fn from(name: &str) -> Variable {
+        Variable {
+            name: Rc::new(name.to_string()),
         }
     }
 }
@@ -40,7 +49,7 @@ impl Display for Variable {
 #[derive(Debug, Clone)]
 pub struct LinearTerm {
     /// The variable in the term.
-    pub variable: Variable,
+    pub variable: Rc<Variable>,
     
     /// The coefficient of the variable.
     pub coefficient: f64,
@@ -51,7 +60,29 @@ impl Mul<f64> for Variable {
 
     fn mul(self, rhs: f64) -> LinearTerm {
         LinearTerm {
-            variable: self,
+            variable: Rc::new(self),
+            coefficient: rhs,
+        }
+    }
+}
+
+impl Div<f64> for Variable {
+    type Output = LinearTerm;
+
+    fn div(self, rhs: f64) -> LinearTerm {
+        LinearTerm {
+            variable: Rc::new(self),
+            coefficient: 1.0 / rhs,
+        }
+    }
+}
+
+impl<'a> Mul<f64> for &'a Variable {
+    type Output = LinearTerm;
+
+    fn mul(self, rhs: f64) -> LinearTerm {
+        LinearTerm {
+            variable: Rc::new(self.clone()),
             coefficient: rhs,
         }
     }
@@ -64,6 +95,17 @@ impl Div<f64> for LinearTerm {
         LinearTerm {
             variable: self.variable,
             coefficient: self.coefficient / rhs,
+        }
+    }
+}
+
+impl<'a> Div<f64> for &'a Variable {
+    type Output = LinearTerm;
+
+    fn div(self, rhs: f64) -> LinearTerm {
+        LinearTerm {
+            variable: Rc::new(self.clone()),
+            coefficient: 1.0 / rhs,
         }
     }
 }
@@ -347,7 +389,7 @@ impl Objective {
 /// and an objective function that needs to be minimized or maximized.
 pub struct Problem {
     /// The variables in the problem.
-    pub variables: Vec<Variable>,
+    pub variables: Vec<Rc<Variable>>,
     
     /// The constraints in the problem.
     pub constraints: Vec<Constraint>,
@@ -367,19 +409,22 @@ impl Problem {
     /// A new `Problem` object with the given constraints and objective function.
     pub fn new(constraints: Vec<Constraint>, objective: Objective) -> Problem {
         let mut unique_variables: HashSet<Variable> = HashSet::new();
-        
+
         for constraint in &constraints {
             for term in &constraint.expression.terms {
-                unique_variables.insert(term.variable.clone());
+                unique_variables.insert(term.variable.as_ref().clone());
             }
         }
-        
+
         for term in &objective.expression.terms {
-            unique_variables.insert(term.variable.clone());
+            unique_variables.insert(term.variable.as_ref().clone());
         }
-        
-        let variables: Vec<Variable> = unique_variables.into_iter().collect();
-        
+
+        let variables: Vec<Rc<Variable>> = unique_variables
+            .into_iter()
+            .map(|v| Rc::new(v))
+            .collect();
+
         Problem {
             variables,
             constraints,

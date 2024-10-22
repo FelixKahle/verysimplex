@@ -13,9 +13,9 @@ fn main() {
     
     let problem = ProblemBuilder::new()
         .set_objective(Objective::new(ObjectiveType::Maximize, x1.clone() * 5.0 + x2.clone() * 3.0))
-        .add_constraint((x1.clone() * 9.0 + x2.clone() * 3.0).less_or_equal(27.0))
-        .add_constraint((x1.clone() * 2.0 + x2.clone() * 1.0).less_or_equal(7.0))
-        .add_constraint((x1.clone() * 2.0 + x2.clone() * 2.0).less_or_equal(12.0))
+        .add_constraint((&x1 * 9.0 + &x2 * 3.0).less_or_equal(27.0))
+        .add_constraint((&x1 * 2.0 + &x2 * 1.0).less_or_equal(7.0))
+        .add_constraint((&x1 * 2.0 + &x2 * 2.0).less_or_equal(12.0))
         .build()
         .unwrap();
     
