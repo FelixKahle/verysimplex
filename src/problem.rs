@@ -30,14 +30,6 @@ impl Variable {
     }
 }
 
-impl From<&str> for Variable {
-    fn from(name: &str) -> Variable {
-        Variable {
-            name: Rc::new(name.to_string()),
-        }
-    }
-}
-
 impl Display for Variable {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.name)
@@ -49,7 +41,7 @@ impl Display for Variable {
 #[derive(Debug, Clone)]
 pub struct LinearTerm {
     /// The variable in the term.
-    pub variable: Rc<Variable>,
+    pub variable: Variable,
     
     /// The coefficient of the variable.
     pub coefficient: f64,
@@ -60,7 +52,7 @@ impl Mul<f64> for Variable {
 
     fn mul(self, rhs: f64) -> LinearTerm {
         LinearTerm {
-            variable: Rc::new(self),
+            variable: self,
             coefficient: rhs,
         }
     }
@@ -71,29 +63,29 @@ impl Div<f64> for Variable {
 
     fn div(self, rhs: f64) -> LinearTerm {
         LinearTerm {
-            variable: Rc::new(self),
+            variable: self,
             coefficient: 1.0 / rhs,
         }
     }
 }
 
-impl<'a> Mul<f64> for &'a Variable {
+impl Mul<f64> for &Variable {
     type Output = LinearTerm;
 
     fn mul(self, rhs: f64) -> LinearTerm {
         LinearTerm {
-            variable: Rc::new(self.clone()),
+            variable: self.clone(),
             coefficient: rhs,
         }
     }
 }
 
-impl<'a> Div<f64> for &'a Variable {
+impl Div<f64> for &Variable {
     type Output = LinearTerm;
 
     fn div(self, rhs: f64) -> LinearTerm {
         LinearTerm {
-            variable: Rc::new(self.clone()),
+            variable: self.clone(),
             coefficient: 1.0 / rhs,
         }
     }
@@ -401,12 +393,12 @@ impl Problem {
 
         for constraint in &constraints {
             for term in &constraint.expression.terms {
-                unique_variables.insert(term.variable.as_ref().clone());
+                unique_variables.insert(term.variable.clone());
             }
         }
 
         for term in &objective.expression.terms {
-            unique_variables.insert(term.variable.as_ref().clone());
+            unique_variables.insert(term.variable.clone());
         }
 
         let variables: Vec<Rc<Variable>> = unique_variables
