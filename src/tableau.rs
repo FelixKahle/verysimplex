@@ -1,6 +1,7 @@
 // Copyright 2024 Felix Kahle. All rights reserved.
 
 use std::fmt::Display;
+use std::rc::Rc;
 use crate::problem::{ObjectiveType, Problem, Relation};
 
 /// A struct representing a tableau with a specified number of rows and columns.
@@ -14,6 +15,9 @@ pub struct Tableau {
     
     /// The data of the tableau, stored as a flat vector.
     data: Vec<f64>,
+
+    /// The names of the columns (e.g., variable names, "RHS", etc.).
+    column_names: Vec<Rc<String>>,
 }
 
 /// Enum representing possible errors that can occur while working with a `Tableau`.
@@ -40,6 +44,7 @@ impl Tableau {
             row_count,
             column_count,
             data: vec![0.0; row_count * column_count],
+            column_names: Vec::with_capacity(column_count),
         }
     }
     
@@ -59,6 +64,12 @@ impl Tableau {
 
         // Create an empty tableau with the appropriate size
         let mut tableau = Tableau::new(row_count, column_count);
+
+        // Add variable names to the column_names, followed by "RHS" for the rightmost column
+        for variable in &problem.variables {
+            tableau.column_names.push(Rc::clone(&variable.name));
+        }
+        tableau.column_names.push(Rc::new("RHS".to_string()));
 
         // Fill the tableau with constraint coefficients and RHS values
         for (i, constraint) in problem.constraints.iter().enumerate() {
@@ -223,12 +234,21 @@ impl Tableau {
 
 impl Display for Tableau {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Print column headers (names)
+        for name in &self.column_names {
+            write!(f, "{}\t", name)?;
+        }
+        writeln!(f)?;
+
+        // Print each row's values
         for row in 0..self.row_count {
             for col in 0..self.column_count {
                 write!(f, "{}\t", self.data[self.index(row, col)])?;
             }
             writeln!(f)?;
         }
+
+        // Print the objective value at the bottom
         writeln!(f, "Objective value: {}", self.get_objective_value().unwrap_or(0.0))
     }
 }
