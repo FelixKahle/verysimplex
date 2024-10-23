@@ -12,6 +12,9 @@ use std::rc::Rc;
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub struct Variable {
     /// The name of the variable.
+    /// 
+    /// # Note
+    /// The name is stored as a reference-counted string to avoid copying the name when passing variables around.
     pub name: Rc<String>,
 }
 
@@ -440,12 +443,9 @@ pub struct ProblemBuilder {
     objective: Option<Objective>
 }
 
-/// Error type for the `ProblemBuilder`.
+/// Error type for when the objective is missing in the `ProblemBuilder`.
 #[derive(Debug, Clone)]
-pub enum ProblemBuilderError {
-    /// The objective function is missing.
-    MissingObjective,
-}
+pub struct MissingObjectiveError;
 
 impl ProblemBuilder {
     /// Creates a new `ProblemBuilder` instance.
@@ -487,11 +487,11 @@ impl ProblemBuilder {
     ///
     /// # Returns
     /// A `Problem` object if the objective is set, otherwise an error message.
-    pub fn build(self) -> Result<Problem, ProblemBuilderError> {
+    pub fn build(self) -> Result<Problem, MissingObjectiveError> {
         if let Some(objective) = self.objective {
             Ok(Problem::new(self.constraints, objective))
         } else {
-            Err(ProblemBuilderError::MissingObjective)
+            Err(MissingObjectiveError)
         }
     }
 }

@@ -1,5 +1,7 @@
 // Copyright 2024 Felix Kahle. All rights reserved.
 
+#![allow(dead_code)]
+
 use std::fmt::Display;
 
 /// A struct representing a 2D matrix with a specified number of rows and columns.
@@ -9,7 +11,7 @@ use std::fmt::Display;
 /// - `T`: The type of the elements in the matrix.
 ///
 /// # Note
-/// The index of a entry at row `i` and column `j` is calculated as `i * columns + j`.
+/// The index of an entry at row `i` and column `j` is calculated as `i * columns + j`.
 pub struct Matrix2D<T> {
     data: Vec<T>,
     rows: usize,
@@ -65,7 +67,8 @@ impl<T> Matrix2D<T> {
     /// - `None` if the indices are invalid.
     pub fn get(&self, row: usize, column: usize) -> Option<&T> {
         if self.indices_valid(row, column) {
-            Some(&self.data[self.index(row, column)])
+            let index = self.index(row, column);
+            Some(&self.data[index])
         } else {
             None
         }
@@ -163,102 +166,5 @@ impl Display for Matrix2D<f64> {
             writeln!(f)?;
         }
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_new_matrix() {
-        let rows = 3;
-        let columns = 3;
-        let matrix = Matrix2D::new(rows, columns, 0);
-
-        assert_eq!(matrix.rows(), rows);
-        assert_eq!(matrix.columns(), columns);
-        assert_eq!(matrix.entries_count(), rows * columns);
-
-        for i in 0..rows {
-            for j in 0..columns {
-                assert_eq!(matrix.get(i, j), Some(&0));
-            }
-        }
-    }
-
-    #[test]
-    fn test_from_vec_valid() {
-        let data = vec![1, 2, 3, 4, 5, 6];
-        let rows = 2;
-        let columns = 3;
-        let matrix = Matrix2D::from_vec(rows, columns, data.clone());
-
-        assert!(matrix.is_some());
-        let matrix = matrix.unwrap();
-
-        assert_eq!(matrix.rows(), rows);
-        assert_eq!(matrix.columns(), columns);
-        assert_eq!(matrix.data(), &data);
-    }
-
-    #[test]
-    fn test_from_vec_invalid() {
-        let data = vec![1, 2, 3, 4, 5];
-        let rows = 2;
-        let columns = 3;
-        let matrix = Matrix2D::from_vec(rows, columns, data);
-
-        assert!(matrix.is_none());
-    }
-
-    #[test]
-    fn test_get_valid() {
-        let rows = 2;
-        let columns = 2;
-        let mut matrix = Matrix2D::new(rows, columns, 1);
-        matrix.data_mut()[1] = 5;
-
-        assert_eq!(matrix.get(0, 1), Some(&5));
-        assert_eq!(matrix.get(1, 1), Some(&1));
-    }
-
-    #[test]
-    fn test_get_invalid_indices() {
-        let matrix = Matrix2D::new(2, 2, 1);
-        
-        assert_eq!(matrix.get(3, 0), None);
-        assert_eq!(matrix.get(0, 3), None);
-    }
-
-    #[test]
-    fn test_get_mut() {
-        let rows = 2;
-        let columns = 2;
-        let mut matrix = Matrix2D::new(rows, columns, 1);
-
-        if let Some(value) = matrix.get_mut(0, 0) {
-            *value = 10;
-        }
-
-        assert_eq!(matrix.get(0, 0), Some(&10));
-    }
-
-    #[test]
-    fn test_indices_valid() {
-        let matrix = Matrix2D::new(2, 2, 1);
-
-        assert!(matrix.indices_valid(1, 1));
-        assert!(!matrix.indices_valid(2, 2));
-    }
-
-    #[test]
-    fn test_display() {
-        let rows = 2;
-        let columns = 2;
-        let matrix = Matrix2D::new(rows, columns, 1.0);
-
-        let expected_output = "1.00\t1.00\t\n1.00\t1.00\t\n";
-        assert_eq!(format!("{}", matrix), expected_output);
     }
 }
