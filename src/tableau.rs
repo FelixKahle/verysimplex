@@ -172,18 +172,21 @@ impl Tableau {
     pub fn gaussian_pivot(&mut self, pivot_row: usize, pivot_column: usize) {
         // Get the pivot element.
         let pivot_element = self.matrix[(pivot_row, pivot_column)];
-        
-        let mut pivot_row_mut = self.matrix.row_mut(pivot_row);
-        pivot_row_mut.scale_mut(1.0 / pivot_element);
-        let pivot_row_copy = self.matrix.row(pivot_row).clone_owned();
+
+        // Scale the pivot row so that the pivot element becomes 1.
+        let num_cols = self.cols();
+        for c in 0..num_cols {
+            self.matrix[(pivot_row, c)] *= 1.0 / pivot_element;
+        }
 
         // Perform row operations to eliminate other entries in the pivot column.
         let num_rows = self.rows();
         for r in 0..num_rows {
             if r != pivot_row {
                 let factor = self.matrix[(r, pivot_column)];
-                let mut current_row_mut = self.matrix.row_mut(r);
-                current_row_mut -= factor * &pivot_row_copy;
+                for c in 0..num_cols {
+                    self.matrix[(r, c)] -= factor * self.matrix[(pivot_row, c)];
+                }
             }
         }
     }
