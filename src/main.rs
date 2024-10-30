@@ -4,6 +4,7 @@ use problem::{Constraint, LinearProgram, Objective, Problem};
 
 mod linsys;
 mod problem;
+mod tableau;
 
 fn main() {
     let program = LinearProgram::<f64>::builder()
