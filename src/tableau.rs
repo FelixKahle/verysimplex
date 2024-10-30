@@ -6,6 +6,7 @@ use std::collections::HashMap;
 
 use nalgebra::{DMatrix, Dyn, MatrixView, Scalar, U1};
 use num_traits::Float;
+use tabled::settings::Style;
 
 /// A variable in the tableau.
 ///
@@ -126,6 +127,28 @@ where
         }
     }
 
+    /// Creates a new tableau from a slice of data.
+    ///
+    /// # Arguments
+    /// - `rows`: The number of rows of the tableau.
+    /// - `columns`: The number of columns of the tableau.
+    /// - `data`: The data of the tableau.
+    /// - `row_variables`: The row variables of the tableau.
+    /// - `column_variables`: The column variables of the tableau.
+    ///
+    /// # Returns
+    /// A new tableau.
+    pub fn from_row_slice(
+        rows: usize,
+        columns: usize,
+        data: &Vec<T>,
+        row_variables: Vec<TableauVariable>,
+        column_variables: Vec<TableauVariable>,
+    ) -> Self {
+        let matrix = DMatrix::from_row_slice(rows, columns, &data);
+        Self::new(matrix, row_variables, column_variables)
+    }
+
     /// Returns the number of rows of the tableau.
     ///
     /// # Returns
@@ -162,7 +185,7 @@ where
     ///
     /// # Returns
     /// The row variables of the tableau.
-    pub fn row_variables(&self) -> &[TableauVariable] {
+    pub fn row_variables(&self) -> &Vec<TableauVariable> {
         &self.row_variables
     }
 
@@ -178,7 +201,7 @@ where
     ///
     /// # Returns
     /// The column variables of the tableau.
-    pub fn column_variables(&self) -> &[TableauVariable] {
+    pub fn column_variables(&self) -> &Vec<TableauVariable> {
         &self.column_variables
     }
 
@@ -194,6 +217,14 @@ where
             .view((0, self.columns() - 1), (self.rows() - 1, 1))
     }
 
+    /// Returns the right-hand side values of the tableau divided by the values of a column.
+    /// If the value of a column is zero, the quotient is `None`.
+    ///
+    /// # Arguments
+    /// - `column`: The index of the column.
+    ///
+    /// # Returns
+    /// The right-hand side values of the tableau divided by the values of a column.
     pub fn rhs_quotients(&self, column: usize) -> Vec<Option<T>> {
         self.rhs_vector()
             .iter()
@@ -289,5 +320,38 @@ where
         } else {
             T::zero()
         }
+    }
+}
+
+impl<T> std::fmt::Display for Tableau<T>
+where
+    T: Scalar + Float + std::fmt::Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let num_rows = self.rows() + 1;
+        let num_columns = self.columns() + 1;
+        let mut builder = tabled::builder::Builder::with_capacity(num_rows, num_columns);
+
+        // Push the header names.
+        let column_names = std::iter::once("".to_string()).chain(
+            self.column_variables()
+                .iter()
+                .map(|variable| variable.to_string()),
+        );
+        builder.push_record(column_names);
+
+        // Push the rows.
+        for row in 0..self.rows() {
+            let row_name = self.row_variables()[row].to_string();
+            let row = self.matrix.row(row);
+            let record =
+                std::iter::once(row_name).chain(row.iter().map(|&value| value.to_string()));
+            builder.push_record(record);
+        }
+
+        let mut table = builder.index().column(0).build();
+        table.with(Style::modern_rounded());
+
+        write!(f, "{}", table)
     }
 }
