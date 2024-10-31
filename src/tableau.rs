@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use nalgebra::{DMatrix, Dyn, MatrixView, Scalar, U1};
+use nalgebra::{iter::MatrixIter, DMatrix, Dyn, MatrixView, Scalar, VecStorage, U1};
 use num_traits::Float;
 use tabled::settings::Style;
 
@@ -112,13 +112,8 @@ where
         matrix: DMatrix<T>,
         row_variables: Vec<TableauVariable>,
         column_variables: Vec<TableauVariable>,
+        basic_variables: HashMap<TableauVariable, usize>,
     ) -> Self {
-        let basic_variables = row_variables
-            .iter()
-            .enumerate()
-            .map(|(i, variable)| (variable.clone(), i))
-            .collect();
-
         Self {
             matrix,
             row_variables,
@@ -144,9 +139,10 @@ where
         data: &Vec<T>,
         row_variables: Vec<TableauVariable>,
         column_variables: Vec<TableauVariable>,
+        basic_variables: HashMap<TableauVariable, usize>,
     ) -> Self {
         let matrix = DMatrix::from_row_slice(rows, columns, &data);
-        Self::new(matrix, row_variables, column_variables)
+        Self::new(matrix, row_variables, column_variables, basic_variables)
     }
 
     /// Returns the number of rows of the tableau.
@@ -320,6 +316,18 @@ where
         } else {
             T::zero()
         }
+    }
+}
+
+impl<'a, T> IntoIterator for &'a Tableau<T>
+where
+    T: Scalar + Float + std::fmt::Display,
+{
+    type Item = &'a T;
+    type IntoIter = MatrixIter<'a, T, Dyn, Dyn, VecStorage<T, Dyn, Dyn>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.matrix.iter()
     }
 }
 

@@ -40,7 +40,7 @@ pub trait Constant<T> {
     ///
     /// # Returns
     /// The constant value of type `T`.
-    fn constant(&self) -> T;
+    fn constant(&self) -> &T;
 }
 
 /// Represents a linear expression in a linear program.
@@ -116,6 +116,24 @@ impl<T> Coefficients<T> for LinearExpression<T> {
     }
 }
 
+impl<'a, T> IntoIterator for &'a LinearExpression<T> {
+    type Item = &'a T;
+    type IntoIter = std::slice::Iter<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.coefficients.iter()
+    }
+}
+
+impl<T> IntoIterator for LinearExpression<T> {
+    type Item = T;
+    type IntoIter = std::vec::IntoIter<T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.coefficients.into_iter()
+    }
+}
+
 /// Represents a constraint in a linear program.
 ///
 /// Constraints define boundaries for solutions in linear programming, specifying relationships
@@ -160,16 +178,39 @@ impl<T> Coefficients<T> for Constraint<T> {
     }
 }
 
-impl<T> Constant<T> for Constraint<T>
-where
-    T: Copy,
-{
-    fn constant(&self) -> T {
+impl<T> Constant<T> for Constraint<T> {
+    fn constant(&self) -> &T {
         match self {
-            Constraint::Equal(_, value) => *value,
-            Constraint::LessOrEqual(_, value) => *value,
-            Constraint::GreaterOrEqual(_, value) => *value,
+            Constraint::Equal(_, value) => value,
+            Constraint::LessOrEqual(_, value) => value,
+            Constraint::GreaterOrEqual(_, value) => value,
         }
+    }
+}
+
+impl<'a, T> IntoIterator for &'a Constraint<T> {
+    type Item = &'a T;
+    type IntoIter = std::iter::Chain<std::slice::Iter<'a, T>, std::iter::Once<&'a T>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.coefficients()
+            .iter()
+            .chain(std::iter::once(self.constant()))
+    }
+}
+
+impl<T> IntoIterator for Constraint<T>
+where
+    T: Clone,
+{
+    type Item = T;
+    type IntoIter = std::iter::Chain<std::vec::IntoIter<T>, std::iter::Once<T>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.coefficients()
+            .to_vec()
+            .into_iter()
+            .chain(std::iter::once(self.constant().clone()))
     }
 }
 
@@ -211,6 +252,27 @@ impl<T> Coefficients<T> for Objective<T> {
             Objective::Maximize(expr) => expr.coefficients(),
             Objective::Minimize(expr) => expr.coefficients(),
         }
+    }
+}
+
+impl<'a, T> IntoIterator for &'a Objective<T> {
+    type Item = &'a T;
+    type IntoIter = std::slice::Iter<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.coefficients().iter()
+    }
+}
+
+impl<T> IntoIterator for Objective<T>
+where
+    T: Clone,
+{
+    type Item = T;
+    type IntoIter = std::vec::IntoIter<T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.coefficients().to_vec().into_iter()
     }
 }
 
