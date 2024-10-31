@@ -2,11 +2,10 @@
 
 #![allow(dead_code)]
 
-use std::collections::HashMap;
+use std::{collections::HashMap, rc::Rc};
 
 use nalgebra::{iter::MatrixIter, DMatrix, Dyn, MatrixView, Scalar, VecStorage, U1};
 use num_traits::Float;
-use tabled::settings::Style;
 
 /// A variable in the tableau.
 ///
@@ -18,7 +17,7 @@ pub struct TableauVariable {
     id: usize,
 
     /// The name of the variable.
-    name: String,
+    name: Rc<String>,
 }
 
 impl TableauVariable {
@@ -30,7 +29,7 @@ impl TableauVariable {
     ///
     /// # Returns
     /// A new tableau variable.
-    pub fn new(id: usize, name: String) -> Self {
+    pub fn new(id: usize, name: Rc<String>) -> Self {
         Self { id, name }
     }
 
@@ -340,30 +339,6 @@ where
     T: Scalar + Float + std::fmt::Display,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let num_rows = self.rows() + 1;
-        let num_columns = self.columns() + 1;
-        let mut builder = tabled::builder::Builder::with_capacity(num_rows, num_columns);
-
-        // Push the header names.
-        let column_names = std::iter::once("".to_string()).chain(
-            self.column_variables()
-                .iter()
-                .map(|variable| variable.to_string()),
-        );
-        builder.push_record(column_names);
-
-        // Push the rows.
-        for row in 0..self.rows() {
-            let row_name = self.row_variables()[row].to_string();
-            let row = self.matrix.row(row);
-            let record =
-                std::iter::once(row_name).chain(row.iter().map(|&value| value.to_string()));
-            builder.push_record(record);
-        }
-
-        let mut table = builder.index().column(0).build();
-        table.with(Style::modern_rounded());
-
-        write!(f, "{}", table)
+        write!(f, "{}", self.matrix)
     }
 }

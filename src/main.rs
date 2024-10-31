@@ -4,6 +4,7 @@ use problem::{Constraint, LinearProgram, Objective, Problem};
 
 mod linsys;
 mod problem;
+mod solver;
 mod tableau;
 
 fn main() {
@@ -16,4 +17,7 @@ fn main() {
         .unwrap();
     let problem = Problem::new(program, vec!["x".into(), "y".into(), "z".into()]).unwrap();
     println!("{}", problem);
+
+    let tableau = solver::create_initial_tableau(&problem);
+    println!("{}", tableau);
 }
