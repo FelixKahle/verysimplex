@@ -13,6 +13,8 @@ use std::fmt::Display;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ZeroPivotElementError;
 
+impl std::error::Error for ZeroPivotElementError {}
+
 impl Display for ZeroPivotElementError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(

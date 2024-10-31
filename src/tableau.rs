@@ -4,7 +4,7 @@
 
 use std::{collections::HashMap, rc::Rc};
 
-use nalgebra::{iter::MatrixIter, DMatrix, Dyn, MatrixView, Scalar, VecStorage, U1};
+use nalgebra::{iter::MatrixIter, max, DMatrix, Dyn, MatrixView, Scalar, VecStorage, U1};
 use num_traits::Float;
 
 /// A variable in the tableau.
@@ -94,6 +94,47 @@ where
     basic_variables: HashMap<TableauVariable, usize>,
 }
 
+/// Errors that can occur when creating a tableau.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TableauCreationError {
+    /// The number of row variables is inconsistent with the number of rows in the matrix.
+    /// We expect the number of rows to be equal to the number of constraints plus one.
+    InconsistentRowLength { expected: usize, actual: usize },
+
+    /// The number of column variables is inconsistent with the number of columns in the matrix.
+    /// We expect the number of columns to be equal to the number of row variables minus one.
+    InconsistentColumnLength { expected: usize, actual: usize },
+
+    /// The length of the slice is invalid.
+    /// We expect the length of the slice to be equal to the number of matrix rows
+    /// multiplied by the number of matrix columns.
+    InvalidSliceLength { expected: usize, actual: usize },
+}
+
+impl std::error::Error for TableauCreationError {}
+
+impl std::fmt::Display for TableauCreationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InconsistentRowLength { expected, actual } => write!(
+                f,
+                "The number of row variables is inconsistent with the number of rows in the matrix. Expected {}, got {}.",
+                expected, actual
+            ),
+            Self::InconsistentColumnLength { expected, actual } => write!(
+                f,
+                "The number of column variables is inconsistent with the number of columns in the matrix. Expected {}, got {}.",
+                expected, actual
+            ),
+            Self::InvalidSliceLength { expected, actual } => write!(
+                f,
+                "The length of the slice is invalid. Expected {}, got {}.",
+                expected, actual
+            ),
+        }
+    }
+}
+
 impl<T> Tableau<T>
 where
     T: Scalar + Float + std::fmt::Display,
@@ -111,22 +152,44 @@ where
         matrix: DMatrix<T>,
         row_variables: Vec<TableauVariable>,
         column_variables: Vec<TableauVariable>,
-    ) -> Self {
-        // The basic variables are the row variables initially.
+    ) -> Result<Self, TableauCreationError> {
+        let matrix_rows = matrix.nrows();
+        let matrix_columns = matrix.ncols();
+
+        // Ensure the number of row variables matches the rows in the matrix minus the objective row.
+        let expected_rows = max(0, matrix_rows - 1);
+        if max(0, matrix_rows - 1) != row_variables.len() {
+            return Err(TableauCreationError::InconsistentRowLength {
+                expected: expected_rows,
+                actual: row_variables.len(),
+            });
+        }
+
+        // Ensure the number of column variables matches the columns in the matrix minus the RHS column.
+        let expected_columns = max(0, matrix_columns - 1);
+        if expected_columns != column_variables.len() {
+            return Err(TableauCreationError::InconsistentColumnLength {
+                expected: expected_columns,
+                actual: column_variables.len(),
+            });
+        }
+
+        // Initialize basic variables as the row variables.
         let basic_variables = row_variables
             .iter()
             .enumerate()
             .map(|(i, v)| (v.clone(), i))
             .collect();
-        Self {
+
+        Ok(Self {
             matrix,
             row_variables,
             column_variables,
             basic_variables,
-        }
+        })
     }
 
-    /// Creates a new tableau from a slice of data.
+    /// Creates a new tableau from a slice of data, performing length validation.
     ///
     /// # Arguments
     /// - `rows`: The number of rows of the tableau.
@@ -136,14 +199,23 @@ where
     /// - `column_variables`: The column variables of the tableau.
     ///
     /// # Returns
-    /// A new tableau.
+    /// A new tableau or an error if the provided slice length is incorrect.
     pub fn from_row_slice(
         rows: usize,
         columns: usize,
         data: &Vec<T>,
         row_variables: Vec<TableauVariable>,
         column_variables: Vec<TableauVariable>,
-    ) -> Self {
+    ) -> Result<Self, TableauCreationError> {
+        // Validate the length of data slice matches the matrix dimensions.
+        let expected_length = rows * columns;
+        if expected_length != data.len() {
+            return Err(TableauCreationError::InvalidSliceLength {
+                expected: expected_length,
+                actual: data.len(),
+            });
+        }
+
         let matrix = DMatrix::from_row_slice(rows, columns, &data);
         Self::new(matrix, row_variables, column_variables)
     }
@@ -281,7 +353,7 @@ where
     /// # Arguments
     /// - `row`: The row of the basic variable.
     /// - `variable`: The basic variable.
-    pub fn basic_variable(&mut self, row: usize, variable: TableauVariable) {
+    pub fn basic_variable(&mut self, row: usize, variable: &TableauVariable) {
         // Remove the old basic variable for this row from `basic_variables`.
         if let Some(old_variable) = self.row_variables.get(row) {
             self.basic_variables.remove(old_variable);
@@ -289,7 +361,7 @@ where
 
         // Update `row_variables` and insert the new variable into `basic_variables`.
         self.row_variables[row] = variable.clone();
-        self.basic_variables.insert(variable, row);
+        self.basic_variables.insert(variable.clone(), row);
     }
 
     /// Checks if a variable is a basic variable.

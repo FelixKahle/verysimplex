@@ -283,6 +283,8 @@ pub enum LinearProgramError {
     InconsistentCoefficientLength,
 }
 
+impl std::error::Error for LinearProgramError {}
+
 impl Display for LinearProgramError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
@@ -402,6 +404,8 @@ pub enum LinearProgramBuilderError {
     MissingObjective,
 }
 
+impl std::error::Error for LinearProgramBuilderError {}
+
 impl From<LinearProgramError> for LinearProgramBuilderError {
     fn from(error: LinearProgramError) -> Self {
         match error {
@@ -519,6 +523,8 @@ pub enum ProblemError {
     /// The number of variable names does not match the number of variables in the program.
     MismatchedVariableNamesLength,
 }
+
+impl std::error::Error for ProblemError {}
 
 impl Display for ProblemError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {

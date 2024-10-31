@@ -7,7 +7,7 @@ use num_traits::Float;
 
 use crate::{
     problem::{Coefficients, Constant, Objective, Problem},
-    tableau::{Tableau, TableauVariable},
+    tableau::{Tableau, TableauCreationError, TableauVariable},
 };
 
 /// Creates the initial tableau for the given problem.
@@ -17,7 +17,7 @@ use crate::{
 ///
 /// # Returns
 /// The initial tableau for the given problem.
-pub fn create_initial_tableau<T>(problem: &Problem<T>) -> Tableau<T>
+pub fn create_initial_tableau<T>(problem: &Problem<T>) -> Result<Tableau<T>, TableauCreationError>
 where
     T: Scalar + Float + std::fmt::Display,
 {
