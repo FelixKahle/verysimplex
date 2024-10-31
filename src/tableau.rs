@@ -112,8 +112,13 @@ where
         matrix: DMatrix<T>,
         row_variables: Vec<TableauVariable>,
         column_variables: Vec<TableauVariable>,
-        basic_variables: HashMap<TableauVariable, usize>,
     ) -> Self {
+        // The basic variables are the row variables initially.
+        let basic_variables = row_variables
+            .iter()
+            .enumerate()
+            .map(|(i, v)| (v.clone(), i))
+            .collect();
         Self {
             matrix,
             row_variables,
@@ -139,10 +144,9 @@ where
         data: &Vec<T>,
         row_variables: Vec<TableauVariable>,
         column_variables: Vec<TableauVariable>,
-        basic_variables: HashMap<TableauVariable, usize>,
     ) -> Self {
         let matrix = DMatrix::from_row_slice(rows, columns, &data);
-        Self::new(matrix, row_variables, column_variables, basic_variables)
+        Self::new(matrix, row_variables, column_variables)
     }
 
     /// Returns the number of rows of the tableau.

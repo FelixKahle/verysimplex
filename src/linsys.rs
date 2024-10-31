@@ -128,11 +128,15 @@ where
                 continue;
             }
 
+            let factor = self[(row_index, target_column)];
+
+            // If the factor is zero, we can skip the row as it will not affect the elimination.
+            if factor.is_zero() {
+                continue;
+            }
+
             // Take a copy of the normalized pivot row for manipulation.
             let adjusted_row = self.row(target_row).into_owned();
-
-            // Calculate the factor needed to make the target column element in `row_index` zero.
-            let factor = self[(row_index, target_column)];
 
             // Perform row transformation: subtract the pivot row multiplied by the factor
             // from the current row to set the target element to zero.
