@@ -48,8 +48,8 @@ impl TableauVariable {
     ///
     /// # Returns
     /// The `Rc` wrapped name of the variable.
-    pub fn name(&self) -> Rc<String> {
-        self.name.clone()
+    pub fn name(&self) -> &Rc<String> {
+        &self.name
     }
 }
 
@@ -280,31 +280,38 @@ where
         constraint_rows: Vec<TableauConstraintRow<T>>,
         objective_row: TableauObjectiveRow<T>,
     ) -> Self {
-        // Ensure that the number of variables is equal to or greater than the number of constraints.
-        // This is because the row variables need to be included in the variable list.
+        // Ensure that the number of variables is greater than the number of constraints.
         if variables.len() <= constraint_rows.len() {
-            panic!("The number of variables must be equal to or greater than the number of constraints.");
+            panic!("The number of variables must be greater than the number of constraints.");
         }
 
-        // Determine matrix dimensions.
-        // Add one to the number of rows to account for the objective row.
-        // Add one to the number of columns to account for the RHS column.
+        // Determine matrix dimensions: constraint rows + 1 (for objective row), and variables + 1 (for RHS).
         let num_rows = constraint_rows.len() + 1;
         let num_columns = variables.len() + 1;
-        let mut matrix = DMatrix::<T>::zeros(num_rows, num_columns);
 
+        // Create a vector for column-major data with the correct capacity.
+        let mut data: Vec<T> = vec![T::zero(); num_rows * num_columns];
+
+        // Populate constraint row data in column-major order.
         for (i, row) in constraint_rows.iter().enumerate() {
             for (j, &coef) in row.coefficients().iter().enumerate() {
-                matrix[(i, j)] = coef;
+                data[j * num_rows + i] = coef; // Populate each column by iterating over rows
             }
-            matrix[(i, num_columns - 1)] = *row.constant();
+            // Correctly populate the RHS constant in the last column for this row.
+            data[(num_columns - 1) * num_rows + i] = *row.constant();
         }
 
+        // Populate objective row data in column-major order.
         for (j, &coef) in objective_row.coefficients().iter().enumerate() {
-            matrix[(num_rows - 1, j)] = coef;
+            data[j * num_rows + num_rows - 1] = coef;
         }
-        matrix[(num_rows - 1, num_columns - 1)] = *objective_row.objective_value();
+        // RHS objective value in the last row of the last column.
+        data[(num_columns - 1) * num_rows + num_rows - 1] = *objective_row.objective_value();
 
+        // Create the matrix with data in column-major order.
+        let matrix = DMatrix::from_vec(num_rows, num_columns, data);
+
+        // Collect row variables (basic variables) for the constraints.
         let rows = constraint_rows
             .iter()
             .map(|row| row.variable().clone())
@@ -315,5 +322,38 @@ where
             variables,
             rows,
         }
+    }
+
+    /// Retrieves the matrix representation of the tableau.
+    ///
+    /// # Returns
+    /// A reference to the matrix representation of the tableau.
+    pub fn matrix(&self) -> &DMatrix<T> {
+        &self.matrix
+    }
+
+    /// Retrieves the list of variables used in the tableau.
+    ///
+    /// # Returns
+    /// A reference to the list of variables used in the tableau.
+    pub fn variables(&self) -> &Vec<TableauVariable> {
+        &self.variables
+    }
+
+    /// Retrieves the list of row variables used in the tableau.
+    ///
+    /// # Returns
+    /// A reference to the list of row variables used in the tableau.
+    pub fn rows(&self) -> &Vec<TableauVariable> {
+        &self.rows
+    }
+}
+
+impl<T> std::fmt::Display for Tableau<T>
+where
+    T: Scalar + Float + std::fmt::Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.matrix())
     }
 }
