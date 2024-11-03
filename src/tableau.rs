@@ -4,7 +4,7 @@
 
 use std::{hash::Hash, rc::Rc};
 
-use nalgebra::{DMatrix, Scalar};
+use nalgebra::{max, DMatrix, Dyn, MatrixView, Scalar, U1};
 use num_traits::Float;
 
 /// A named variable in the tableau.
@@ -77,6 +77,7 @@ impl Hash for TableauVariable {
 ///
 /// # Type Parameters
 /// - `T`: The numeric type of the coefficients and constants in the tableau.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TableauConstraintRow<T> {
     /// The main variable associated with this row.
     variable: TableauVariable,
@@ -259,6 +260,21 @@ where
     rows: Vec<TableauVariable>,
 }
 
+/// An error indicating the number of variables is incorrect.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InvalidVariableCountError;
+
+impl std::fmt::Display for InvalidVariableCountError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "The number of variables is invalid for the number of constraints."
+        )
+    }
+}
+
+impl std::error::Error for InvalidVariableCountError {}
+
 impl<T> Tableau<T>
 where
     T: Scalar + Float + std::fmt::Display,
@@ -271,18 +287,20 @@ where
     /// - `objective_row`: The `TableauObjectiveRow` instance representing the objective function.
     ///
     /// # Returns
-    /// A new `Tableau` instance initialized with a matrix that includes all coefficients, constants, and the objective row.
-    ///
-    /// # Panics
-    /// Panics if the number of variables is less than the number of constraints.
+    /// A new `Tableau` instance with the matrix representation for the simplex algorithm.
     pub fn new(
         variables: Vec<TableauVariable>,
         constraint_rows: Vec<TableauConstraintRow<T>>,
         objective_row: TableauObjectiveRow<T>,
-    ) -> Self {
+    ) -> Result<Self, InvalidVariableCountError> {
+        let constraint_len = constraint_rows.len();
+        let variable_len = variables.len();
+
         // Ensure that the number of variables is greater than the number of constraints.
-        if variables.len() <= constraint_rows.len() {
-            panic!("The number of variables must be greater than the number of constraints.");
+        // This will not ensure complete correctness, but it is a necessary condition.
+        // If we have for example two constraints, we need at least two variables.
+        if variable_len <= constraint_len {
+            return Err(InvalidVariableCountError);
         }
 
         // Determine matrix dimensions: constraint rows + 1 (for objective row), and variables + 1 (for RHS).
@@ -317,11 +335,27 @@ where
             .map(|row| row.variable().clone())
             .collect();
 
-        Self {
+        Ok(Self {
             matrix,
             variables,
             rows,
-        }
+        })
+    }
+
+    /// Returns the number of rows of the tableau.
+    ///
+    /// # Returns
+    /// The number of rows of the tableau.
+    pub fn num_rows(&self) -> usize {
+        self.matrix.nrows()
+    }
+
+    /// Returns the number of columns of the tableau.
+    ///
+    /// # Returns
+    /// The number of columns of the tableau.
+    pub fn num_columns(&self) -> usize {
+        self.matrix.ncols()
     }
 
     /// Retrieves the matrix representation of the tableau.
@@ -347,6 +381,69 @@ where
     pub fn rows(&self) -> &Vec<TableauVariable> {
         &self.rows
     }
+
+    /// Returns a view to the right-hand side vector of the tableau.
+    ///
+    /// This vector contains the right-hand side values of the constraints in the tableau,
+    /// without the objective value.
+    ///
+    /// # Returns
+    /// A view to the right-hand side vector of the tableau.
+    pub fn rhs_vector(&self) -> MatrixView<T, Dyn, Dyn, U1, Dyn> {
+        self.matrix
+            .view((0, self.num_columns() - 1), (self.num_rows() - 1, 1))
+    }
+
+    /// Returns a view to the objective row of the tableau.
+    ///
+    /// # Arguments
+    /// - `column`: The column index of thr row we take the divisor from.
+    ///
+    /// # Returns
+    /// A view to the objective row of the tableau.
+    pub fn rhs_quotients(&self, column: usize) -> Vec<Option<T>> {
+        self.rhs_vector()
+            .iter()
+            .zip(self.matrix.column(column).iter())
+            .map(|(&rhs, &value)| {
+                if value.is_zero() {
+                    None
+                } else {
+                    Some(rhs / value)
+                }
+            })
+            .collect()
+    }
+
+    /// Returns a view to the objective coefficients vector of the tableau.
+    ///
+    /// This vector contains the coefficients of the objective function in the tableau,
+    /// without the objective value.
+    ///
+    /// # Returns
+    /// A view to the objective coefficients vector of the tableau.
+    pub fn objective_coefficients_vector(&self) -> MatrixView<T, Dyn, Dyn, U1, Dyn> {
+        self.matrix
+            .view((self.num_rows() - 1, 0), (1, self.num_columns() - 1))
+    }
+
+    /// Checks if the current tableau is optimal.
+    ///
+    /// # Returns
+    /// `true` if the tableau is optimal, `false` otherwise.
+    pub fn is_optimal(&self) -> bool {
+        self.objective_coefficients_vector()
+            .iter()
+            .all(|&coeff| coeff <= T::zero())
+    }
+
+    /// Checks if the tableau is feasible.
+    ///
+    /// # Returns
+    /// `true` if all RHS values are non-negative, `false` otherwise.
+    pub fn is_feasible(&self) -> bool {
+        self.rhs_vector().iter().all(|&rhs| rhs >= T::zero())
+    }
 }
 
 impl<T> std::fmt::Display for Tableau<T>
@@ -355,5 +452,169 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.matrix())
+    }
+}
+
+/// An error that can occur when building a tableau.
+#[derive(Debug, Clone)]
+pub enum TableauBuilderError {
+    /// The objective row is missing.
+    MissingObjectiveRow,
+
+    /// The number of variables is incorrect.
+    InvalidVariableCountError,
+}
+
+impl std::fmt::Display for TableauBuilderError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MissingObjectiveRow => write!(f, "Missing objective row"),
+            Self::InvalidVariableCountError => write!(
+                f,
+                "The number of variables is invalid for the number of constraints."
+            ),
+        }
+    }
+}
+
+impl From<InvalidVariableCountError> for TableauBuilderError {
+    fn from(_: InvalidVariableCountError) -> Self {
+        Self::InvalidVariableCountError
+    }
+}
+
+pub struct TableauBuilder<T>
+where
+    T: Scalar + Float + std::fmt::Display,
+{
+    variables: Vec<TableauVariable>,
+    constraint_rows: Vec<TableauConstraintRow<T>>,
+    objective_row: Option<TableauObjectiveRow<T>>,
+}
+
+impl<T> TableauBuilder<T>
+where
+    T: Scalar + Float + std::fmt::Display,
+{
+    /// Creates a new tableau builder.
+    ///
+    /// # Returns
+    /// A new tableau builder.
+    pub fn new() -> Self {
+        Self {
+            variables: Vec::new(),
+            constraint_rows: Vec::new(),
+            objective_row: None,
+        }
+    }
+
+    /// Creates a new tableau builder with a given capacity.
+    ///
+    /// # Arguments
+    /// - `num_variables`: The number of variables to pre-allocate space for.
+    /// - `num_constraints`: The number of constraints to pre-allocate space for.
+    ///
+    /// # Returns
+    /// A new tableau builder with the given capacity.
+    pub fn with_capacity(num_variables: usize, num_constraints: usize) -> Self {
+        Self {
+            variables: Vec::with_capacity(max(0, num_variables)),
+            constraint_rows: Vec::with_capacity(max(0, num_constraints)),
+            objective_row: None,
+        }
+    }
+
+    /// Adds a variable to the tableau.
+    ///
+    /// # Arguments
+    /// - `variable`: The variable to add to the tableau.
+    ///
+    /// # Returns
+    /// A mutable reference to the tableau builder.
+    pub fn add_variable(&mut self, variable: TableauVariable) -> &mut Self {
+        self.variables.push(variable);
+        self
+    }
+
+    /// Adds a list of variables to the tableau.
+    ///
+    /// # Arguments
+    /// - `variables`: The list of variables to add to the tableau.
+    ///
+    /// # Returns
+    /// A mutable reference to the tableau builder.
+    pub fn add_constraint_row(&mut self, row: TableauConstraintRow<T>) -> &mut Self {
+        self.constraint_rows.push(row);
+        self
+    }
+
+    /// Removes a constraint row from the tableau.
+    ///
+    /// # Arguments
+    /// - `row`: The constraint row to remove from the tableau.
+    ///
+    /// # Returns
+    /// A mutable reference to the tableau builder.
+    pub fn remove_constraint_row(&mut self, row: &TableauConstraintRow<T>) -> &mut Self {
+        let index = self.constraint_rows.iter().position(|r| r == row);
+        if let Some(index) = index {
+            self.constraint_rows.remove(index);
+        }
+        self
+    }
+
+    /// Adds a list of constraint rows to the tableau.
+    ///
+    /// # Arguments
+    /// - `rows`: The list of constraint rows to add to the tableau.
+    ///
+    /// # Returns
+    /// A mutable reference to the tableau builder.
+    pub fn add_constraint_rows(&mut self, rows: Vec<TableauConstraintRow<T>>) -> &mut Self {
+        self.constraint_rows.extend(rows);
+        self
+    }
+
+    /// Removes all constraint rows from the tableau.
+    ///
+    /// # Returns
+    /// A mutable reference to the tableau builder.
+    pub fn clear_constraint_rows(&mut self) -> &mut Self {
+        self.constraint_rows.clear();
+        self
+    }
+
+    /// Sets the objective row of the tableau.
+    ///
+    /// # Arguments
+    /// - `row`: The objective row of the tableau.
+    ///
+    /// # Returns
+    /// A mutable reference to the tableau builder.
+    pub fn set_objective_row(&mut self, row: TableauObjectiveRow<T>) -> &mut Self {
+        self.objective_row = Some(row);
+        self
+    }
+
+    /// Removes the objective row from the tableau.
+    ///
+    /// # Returns
+    /// A mutable reference to the tableau builder.
+    pub fn remove_objective_row(&mut self) -> &mut Self {
+        self.objective_row = None;
+        self
+    }
+
+    /// Builds the tableau.
+    ///
+    /// # Returns
+    /// A new tableau.
+    pub fn build(self) -> Result<Tableau<T>, TableauBuilderError> {
+        let objective_row = self
+            .objective_row
+            .ok_or(TableauBuilderError::MissingObjectiveRow)?;
+        let tableau = Tableau::new(self.variables, self.constraint_rows, objective_row)?;
+
+        Ok(tableau)
     }
 }
