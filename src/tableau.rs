@@ -342,8 +342,8 @@ where
 
         // Populate constraint row data in column-major order.
         for (i, row) in constraint_rows.iter().enumerate() {
-            for (j, &coef) in row.coefficients().iter().enumerate() {
-                data[j * num_rows + i] = coef; // Populate each column by iterating over rows
+            for (j, coef) in row.coefficients().iter().enumerate() {
+                data[j * num_rows + i] = *coef;
             }
             // Correctly populate the RHS constant in the last column for this row.
             data[(num_columns - 1) * num_rows + i] = *row.constant();
@@ -526,12 +526,19 @@ impl From<TableauError> for TableauBuilderError {
 
 impl std::error::Error for TableauBuilderError {}
 
+/// A builder for creating a tableau.
+#[derive(Debug, Clone)]
 pub struct TableauBuilder<T>
 where
     T: Scalar + Float + std::fmt::Display,
 {
+    /// The list of variables used in the tableau.
     variables: Vec<TableauVariable>,
+
+    /// The list of constraint rows in the tableau.
     constraint_rows: Vec<TableauConstraintRow<T>>,
+
+    /// The objective row of the tableau.
     objective_row: Option<TableauObjectiveRow<T>>,
 }
 
@@ -659,5 +666,38 @@ where
         let tableau = Tableau::new(self.variables, self.constraint_rows, objective_row)?;
 
         Ok(tableau)
+    }
+
+    /// Returns the list of variables in the tableau builder.
+    ///
+    /// # Returns
+    /// The list of variables in the tableau builder.
+    pub fn variables(&self) -> &Vec<TableauVariable> {
+        &self.variables
+    }
+
+    /// Returns the list of constraint rows in the tableau builder.
+    ///
+    /// # Returns
+    /// The list of constraint rows in the tableau builder.
+    pub fn constraint_rows(&self) -> &Vec<TableauConstraintRow<T>> {
+        &self.constraint_rows
+    }
+
+    /// Returns the objective row in the tableau builder.
+    ///
+    /// # Returns
+    /// The objective row in the tableau builder.
+    pub fn objective_row(&self) -> Option<&TableauObjectiveRow<T>> {
+        self.objective_row.as_ref()
+    }
+}
+
+impl<T> Default for TableauBuilder<T>
+where
+    T: Scalar + Float + std::fmt::Display,
+{
+    fn default() -> Self {
+        Self::new()
     }
 }
