@@ -7,6 +7,8 @@ use std::{hash::Hash, rc::Rc};
 use nalgebra::{max, DMatrix, Dyn, MatrixView, Scalar, U1};
 use num_traits::Float;
 
+use crate::problem::{Coefficients, Constant};
+
 /// A named variable in the tableau.
 ///
 /// Each variable has a unique identifier (`id`) to distinguish between
@@ -114,22 +116,6 @@ impl<T> TableauConstraintRow<T> {
     pub fn variable(&self) -> &TableauVariable {
         &self.variable
     }
-
-    /// Retrieves the constant of the row.
-    ///
-    /// # Returns
-    /// A reference to the constant value of the row.
-    pub fn constant(&self) -> &T {
-        &self.constant
-    }
-
-    /// Retrieves the coefficients of the row.
-    ///
-    /// # Returns
-    /// A reference to the vector of coefficients in the row.
-    pub fn coefficients(&self) -> &Vec<T> {
-        &self.coefficients
-    }
 }
 
 /// Converts a vector of coefficients to a formatted string representation.
@@ -167,6 +153,22 @@ where
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let coefficients_string = coefficients_vector_to_string(&self.coefficients);
         write!(f, "{} = {}", coefficients_string, self.constant)
+    }
+}
+
+impl<T> Coefficients<T> for TableauConstraintRow<T> {
+    fn coefficients_len(&self) -> usize {
+        self.coefficients().len()
+    }
+
+    fn coefficients(&self) -> &[T] {
+        &self.coefficients
+    }
+}
+
+impl<T> Constant<T> for TableauConstraintRow<T> {
+    fn constant(&self) -> &T {
+        &self.constant
     }
 }
 
@@ -209,14 +211,6 @@ impl<T> TableauObjectiveRow<T> {
     pub fn objective_value(&self) -> &T {
         &self.objective_value
     }
-
-    /// Retrieves the coefficients of the variables in the row.
-    ///
-    /// # Returns
-    /// A reference to the vector of coefficients for the variables in the objective function.
-    pub fn coefficients(&self) -> &Vec<T> {
-        &self.coefficients
-    }
 }
 
 impl<'a, T> IntoIterator for &'a TableauObjectiveRow<T> {
@@ -237,6 +231,22 @@ where
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let coefficients_string = coefficients_vector_to_string(&self.coefficients);
         write!(f, "{} = {}", coefficients_string, self.objective_value)
+    }
+}
+
+impl<T> Coefficients<T> for TableauObjectiveRow<T> {
+    fn coefficients_len(&self) -> usize {
+        self.coefficients().len()
+    }
+
+    fn coefficients(&self) -> &[T] {
+        &self.coefficients
+    }
+}
+
+impl<T> Constant<T> for TableauObjectiveRow<T> {
+    fn constant(&self) -> &T {
+        &self.objective_value
     }
 }
 
@@ -262,18 +272,31 @@ where
 
 /// An error indicating the number of variables is incorrect.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InvalidVariableCountError;
+pub enum TableauError {
+    /// Error indicating that the number of variables in the tableau is incorrect.
+    WrongNumberOfVariables,
 
-impl std::fmt::Display for InvalidVariableCountError {
+    /// Error indicating that the number of coefficients in the linear program is inconsistent.
+    InconsistentCoefficientLength,
+}
+
+impl std::fmt::Display for TableauError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "The number of variables is invalid for the number of constraints."
-        )
+        match self {
+            TableauError::InconsistentCoefficientLength => {
+                write!(
+                    f,
+                    "The number of coefficients in the tableau is inconsistent."
+                )
+            }
+            TableauError::WrongNumberOfVariables => {
+                write!(f, "The number of variables in the tableau is incorrect.")
+            }
+        }
     }
 }
 
-impl std::error::Error for InvalidVariableCountError {}
+impl std::error::Error for TableauError {}
 
 impl<T> Tableau<T>
 where
@@ -292,15 +315,22 @@ where
         variables: Vec<TableauVariable>,
         constraint_rows: Vec<TableauConstraintRow<T>>,
         objective_row: TableauObjectiveRow<T>,
-    ) -> Result<Self, InvalidVariableCountError> {
-        let constraint_len = constraint_rows.len();
-        let variable_len = variables.len();
+    ) -> Result<Self, TableauError> {
+        let objective_coefficients_len = objective_row.coefficients_len();
 
-        // Ensure that the number of variables is greater than the number of constraints.
-        // This will not ensure complete correctness, but it is a necessary condition.
-        // If we have for example two constraints, we need at least two variables.
-        if variable_len <= constraint_len {
-            return Err(InvalidVariableCountError);
+        // Make sure that all rows have the same number of coefficients.
+        // We take the length of the coefficients of the objective row as the reference.
+        for constraint_row in &constraint_rows {
+            if constraint_row.coefficients_len() != objective_coefficients_len {
+                return Err(TableauError::InconsistentCoefficientLength);
+            }
+        }
+
+        // Make sure that the number of variables is correct.
+        // As we already checked that each row has the same number of coefficients,
+        // we can use the length of the coefficients of the objective row as the reference.
+        if variables.len() != objective_coefficients_len {
+            return Err(TableauError::WrongNumberOfVariables);
         }
 
         // Determine matrix dimensions: constraint rows + 1 (for objective row), and variables + 1 (for RHS).
@@ -461,27 +491,40 @@ pub enum TableauBuilderError {
     /// The objective row is missing.
     MissingObjectiveRow,
 
-    /// The number of variables is incorrect.
-    InvalidVariableCountError,
+    /// Error indicating that the number of variables in the tableau is incorrect.
+    WrongNumberOfVariables,
+
+    /// Error indicating that the number of coefficients in the linear program is inconsistent.
+    InconsistentCoefficientLength,
 }
 
 impl std::fmt::Display for TableauBuilderError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::MissingObjectiveRow => write!(f, "Missing objective row"),
-            Self::InvalidVariableCountError => write!(
-                f,
-                "The number of variables is invalid for the number of constraints."
-            ),
+            Self::InconsistentCoefficientLength => {
+                write!(
+                    f,
+                    "The number of coefficients in the tableau is inconsistent."
+                )
+            }
+            Self::WrongNumberOfVariables => {
+                write!(f, "The number of variables in the tableau is incorrect.")
+            }
         }
     }
 }
 
-impl From<InvalidVariableCountError> for TableauBuilderError {
-    fn from(_: InvalidVariableCountError) -> Self {
-        Self::InvalidVariableCountError
+impl From<TableauError> for TableauBuilderError {
+    fn from(error: TableauError) -> Self {
+        match error {
+            TableauError::InconsistentCoefficientLength => Self::InconsistentCoefficientLength,
+            TableauError::WrongNumberOfVariables => Self::WrongNumberOfVariables,
+        }
     }
 }
+
+impl std::error::Error for TableauBuilderError {}
 
 pub struct TableauBuilder<T>
 where
