@@ -2,12 +2,15 @@
 
 #![allow(dead_code)]
 
-use std::{hash::Hash, rc::Rc};
+use std::{collections::HashMap, hash::Hash, rc::Rc};
 
 use nalgebra::{max, DMatrix, Dyn, MatrixView, Scalar, U1};
 use num_traits::Float;
 
-use crate::problem::{Coefficients, Constant};
+use crate::{
+    problem::{Coefficients, Constant},
+    safeset::{IndexOutOfBoundsError, SafeSet},
+};
 
 /// A named variable in the tableau.
 ///
@@ -268,6 +271,9 @@ where
 
     /// The row names for the tableau, represented as `TableauVariable` instances.
     rows: Vec<TableauVariable>,
+
+    /// Stores all basic variables and the corresponding row index.
+    basic_variables: HashMap<TableauVariable, usize>,
 }
 
 /// An error indicating the number of variables is incorrect.
@@ -360,15 +366,23 @@ where
         let matrix = DMatrix::from_vec(num_rows, num_columns, data);
 
         // Collect row variables (basic variables) for the constraints.
-        let rows = constraint_rows
+        let rows: Vec<TableauVariable> = constraint_rows
             .iter()
             .map(|row| row.variable().clone())
+            .collect();
+
+        // Rows are always basic variables, so we can create a map for quick lookup.
+        let basic_variables: HashMap<TableauVariable, usize> = rows
+            .iter()
+            .enumerate()
+            .map(|(i, variable)| (variable.clone(), i))
             .collect();
 
         Ok(Self {
             matrix,
             variables,
             rows,
+            basic_variables,
         })
     }
 
@@ -467,12 +481,83 @@ where
             .all(|&coeff| coeff <= T::zero())
     }
 
+    /// Returns the basic variables of the tableau.
+    ///
+    /// # Returns
+    /// The basic variables of the tableau.
+    pub fn basic_variables(&self) -> &HashMap<TableauVariable, usize> {
+        &self.basic_variables
+    }
+
+    /// Sets a basic variable of a row.
+    ///
+    /// # Arguments
+    /// - `row`: The row of the basic variable.
+    /// - `variable`: The basic variable.
+    ///
+    /// # Returns
+    /// `Ok(())` if the basic variable was set successfully, `Err(IndexOutOfBoundsError)` otherwise.
+    pub fn set_basic_variable(
+        &mut self,
+        row: usize,
+        variable: TableauVariable,
+    ) -> Result<(), IndexOutOfBoundsError<usize>> {
+        // Remove the old basic variable for this row from `basic_variables`.
+        if let Some(old_variable) = self.rows.get(row) {
+            self.basic_variables.remove(old_variable);
+        }
+
+        // Update `row_variables` and insert the new variable into `basic_variables`.
+        // self.rows[row] = variable.clone();
+        self.rows.set(row, variable.clone())?;
+        self.basic_variables.insert(variable, row);
+
+        Ok(())
+    }
+
+    /// Checks if a variable is a basic variable.
+    ///
+    /// # Arguments
+    /// - `variable`: The variable to check.
+    ///
+    /// # Returns
+    /// `true` if the variable is a basic variable, `false` otherwise.
+    pub fn is_basic_variable(&self, variable: &TableauVariable) -> bool {
+        self.basic_variables.contains_key(variable)
+    }
+
+    /// Returns the value of a variable in the tableau.
+    ///
+    /// If the variable is a basic variable, the value is the right-hand side value of the row.
+    /// Otherwise, the value is zero.
+    ///
+    /// # Arguments
+    /// - `variable`: The variable to get the value of.
+    ///
+    /// # Returns
+    /// The value of the variable in the tableau.
+    pub fn variable_value(&self, variable: &TableauVariable) -> T {
+        if let Some(&row) = self.basic_variables.get(variable) {
+            self.matrix[(row, self.num_columns() - 1)]
+        } else {
+            T::zero()
+        }
+    }
+
     /// Checks if the tableau is feasible.
     ///
     /// # Returns
     /// `true` if all RHS values are non-negative, `false` otherwise.
     pub fn is_feasible(&self) -> bool {
         self.rhs_vector().iter().all(|&rhs| rhs >= T::zero())
+    }
+
+    /// Returns a builder for a tableau.
+    ///
+    /// # Returns
+    /// A builder for a tableau.
+    pub fn builder() -> TableauBuilder<T> {
+        TableauBuilder::new()
     }
 }
 

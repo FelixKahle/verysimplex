@@ -4,6 +4,7 @@ use problem::{Constraint, LinearProgram, Objective, Problem};
 
 mod linsys;
 mod problem;
+mod safeset;
 mod tableau;
 
 fn main() {
