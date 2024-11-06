@@ -101,6 +101,10 @@ where
     fn set(&mut self, index: I, value: T) -> Result<(), IndexOutOfBoundsError<I>>;
 }
 
+// ---------------------------------------------------------------------------
+// Following code implements the SafeSet trait for some common types.
+// ---------------------------------------------------------------------------
+
 impl<T> SafeSet<usize, T> for Vec<T> {
     fn set(&mut self, index: usize, value: T) -> Result<(), IndexOutOfBoundsError<usize>> {
         if index < self.len() {
@@ -112,10 +116,6 @@ impl<T> SafeSet<usize, T> for Vec<T> {
         Err(IndexOutOfBoundsError::new(bounds, index))
     }
 }
-
-// ---------------------------------------------------------------------------
-// Following code implements the SafeSet trait for some common types.
-// ---------------------------------------------------------------------------
 
 impl<T> SafeSet<usize, T> for [T] {
     fn set(&mut self, index: usize, value: T) -> Result<(), IndexOutOfBoundsError<usize>> {
