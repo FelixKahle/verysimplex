@@ -19,7 +19,7 @@ impl Display for ZeroPivotElementError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
-            "The pivot element is zero, making Gaussian elimination impossible."
+            "the pivot element is zero, making Gaussian elimination impossible"
         )
     }
 }

@@ -292,11 +292,11 @@ impl std::fmt::Display for TableauError {
             TableauError::InconsistentCoefficientLength => {
                 write!(
                     f,
-                    "The number of coefficients in the tableau is inconsistent."
+                    "the number of coefficients in the tableau is inconsistent"
                 )
             }
             TableauError::WrongNumberOfVariables => {
-                write!(f, "The number of variables in the tableau is incorrect.")
+                write!(f, "the number of variables in the tableau is incorrect")
             }
         }
     }
@@ -586,15 +586,15 @@ pub enum TableauBuilderError {
 impl std::fmt::Display for TableauBuilderError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::MissingObjectiveRow => write!(f, "Missing objective row"),
+            Self::MissingObjectiveRow => write!(f, "missing objective row"),
             Self::InconsistentCoefficientLength => {
                 write!(
                     f,
-                    "The number of coefficients in the tableau is inconsistent."
+                    "the number of coefficients in the tableau is inconsistent"
                 )
             }
             Self::WrongNumberOfVariables => {
-                write!(f, "The number of variables in the tableau is incorrect.")
+                write!(f, "the number of variables in the tableau is incorrect")
             }
         }
     }

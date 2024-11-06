@@ -291,7 +291,7 @@ impl Display for LinearProgramError {
             LinearProgramError::InconsistentCoefficientLength => {
                 write!(
                     f,
-                    "Inconsistent number of coefficients in the linear program"
+                    "inconsistent number of coefficients in the linear program"
                 )
             }
         }
@@ -422,11 +422,11 @@ impl Display for LinearProgramBuilderError {
             LinearProgramBuilderError::InconsistentCoefficientLength => {
                 write!(
                     f,
-                    "Inconsistent number of coefficients in the linear program"
+                    "inconsistent number of coefficients in the linear program"
                 )
             }
             LinearProgramBuilderError::MissingObjective => {
-                write!(f, "Objective function is missing")
+                write!(f, "objective function is missing")
             }
         }
     }
@@ -504,6 +504,12 @@ impl<T> LinearProgramBuilder<T> {
     }
 }
 
+impl Default for LinearProgramBuilder<f64> {
+    fn default() -> Self {
+        LinearProgramBuilder::new()
+    }
+}
+
 /// A wrapper for a linear programming problem to be solved.
 ///
 /// The `Problem` struct contains a `LinearProgram` and the names of variables
@@ -530,7 +536,7 @@ impl Display for ProblemError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             ProblemError::MismatchedVariableNamesLength => {
-                write!(f, "The number of variable names does not match the number of variables in the program.")
+                write!(f, "the number of variable names does not match the number of variables in the program")
             }
         }
     }
@@ -581,41 +587,11 @@ where
     T: Display,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let objective = self.program.objective();
-        let objective_terms: Vec<String> = objective
-            .coefficients()
-            .iter()
-            .zip(&self.variable_names)
-            .map(|(coef, var_name)| format!("{}{}", coef, var_name))
-            .collect();
-        let objective_str = match objective {
-            Objective::Maximize(_) => format!("Maximize: {}", objective_terms.join(" + ")),
-            Objective::Minimize(_) => format!("Minimize: {}", objective_terms.join(" + ")),
-        };
-        writeln!(f, "{}", objective_str)?;
-
+        writeln!(f, "{}", self.program.objective())?;
         writeln!(f, "Subject to:")?;
         for constraint in self.program.constraints() {
-            let constraint_terms: Vec<String> = constraint
-                .coefficients()
-                .iter()
-                .zip(&self.variable_names)
-                .map(|(coef, var_name)| format!("{}{}", coef, var_name))
-                .collect();
-            let constraint_str = match constraint {
-                Constraint::Equal(_, value) => {
-                    format!("{} = {}", constraint_terms.join(" + "), value)
-                }
-                Constraint::LessOrEqual(_, value) => {
-                    format!("{} <= {}", constraint_terms.join(" + "), value)
-                }
-                Constraint::GreaterOrEqual(_, value) => {
-                    format!("{} >= {}", constraint_terms.join(" + "), value)
-                }
-            };
-            writeln!(f, "{}", constraint_str)?;
+            writeln!(f, "{}", constraint)?;
         }
-
         Ok(())
     }
 }

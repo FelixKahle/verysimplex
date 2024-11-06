@@ -5,11 +5,11 @@
 use num_traits::PrimInt;
 
 /// A set of bounds.
+///
+/// # Type parameters
+/// - `T`: The type of the bounds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Bounds<T>
-where
-    T: PrimInt,
-{
+pub struct Bounds<T> {
     /// The lower bound.
     lower: T,
 
@@ -17,10 +17,7 @@ where
     upper: T,
 }
 
-impl<T> Bounds<T>
-where
-    T: PrimInt,
-{
+impl<T> Bounds<T> {
     /// Create a new set of bounds.
     pub fn new(lower: T, upper: T) -> Self {
         Self { lower, upper }
@@ -29,7 +26,7 @@ where
 
 impl<T> std::fmt::Display for Bounds<T>
 where
-    T: PrimInt + std::fmt::Display,
+    T: std::fmt::Display,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "[{}, {}]", self.lower, self.upper)
@@ -37,6 +34,9 @@ where
 }
 
 /// Index out of bounds error.
+///
+/// # Type parameters
+/// - `T`: The type of the index.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IndexOutOfBoundsError<T>
 where
@@ -45,11 +45,14 @@ where
     /// The bounds.
     bounds: Bounds<T>,
 
-    /// The index.
+    /// The index that caused the error.
     index: T,
 }
 
-impl IndexOutOfBoundsError<usize> {
+impl<T> IndexOutOfBoundsError<T>
+where
+    T: PrimInt,
+{
     /// Create a new index out of bounds error.
     ///
     /// # Arguments
@@ -58,7 +61,7 @@ impl IndexOutOfBoundsError<usize> {
     ///
     /// # Returns
     /// The new index out of bounds error.
-    pub fn new(bounds: Bounds<usize>, index: usize) -> Self {
+    pub fn new(bounds: Bounds<T>, index: T) -> Self {
         Self { bounds, index }
     }
 }
@@ -68,7 +71,7 @@ where
     T: PrimInt + std::fmt::Display,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "Index {} out of bounds {}", self.index, self.bounds)
+        write!(f, "index {} out of bounds {}", self.index, self.bounds)
     }
 }
 
@@ -106,6 +109,34 @@ impl<T> SafeSet<usize, T> for Vec<T> {
         }
 
         let bounds = Bounds::new(0, self.len() - 1);
-        return Err(IndexOutOfBoundsError::new(bounds, index));
+        Err(IndexOutOfBoundsError::new(bounds, index))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Following code implements the SafeSet trait for some common types.
+// ---------------------------------------------------------------------------
+
+impl<T> SafeSet<usize, T> for [T] {
+    fn set(&mut self, index: usize, value: T) -> Result<(), IndexOutOfBoundsError<usize>> {
+        if index < self.len() {
+            self[index] = value;
+            return Ok(());
+        }
+
+        let bounds = Bounds::new(0, self.len() - 1);
+        Err(IndexOutOfBoundsError::new(bounds, index))
+    }
+}
+
+impl<T> SafeSet<usize, T> for &mut [T] {
+    fn set(&mut self, index: usize, value: T) -> Result<(), IndexOutOfBoundsError<usize>> {
+        if index < self.len() {
+            self[index] = value;
+            return Ok(());
+        }
+
+        let bounds = Bounds::new(0, self.len() - 1);
+        Err(IndexOutOfBoundsError::new(bounds, index))
     }
 }
