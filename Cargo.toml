@@ -7,3 +7,13 @@ edition = "2021"
 nalgebra = "0.33.1"
 num-traits = "0.2.19"
 tabled = "0.16.0"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+nalgebra-lapack = { version = "0.25.0", default-features = false, features = [
+    "accelerate",
+] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+nalgebra-lapack = { version = "0.25.0", default-features = false, features = [
+    "openblas",
+] }
