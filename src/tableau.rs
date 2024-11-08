@@ -2,9 +2,9 @@
 
 #![allow(dead_code)]
 
-use std::{collections::HashMap, hash::Hash, ops::AddAssign, rc::Rc};
+use std::{collections::HashMap, hash::Hash, rc::Rc};
 
-use nalgebra::{DMatrix, DVector, Scalar};
+use nalgebra::{DMatrix, DVector, Dyn, Matrix, VecStorage};
 use nalgebra_lapack::{LUScalar, LU};
 use num_traits::Float;
 
@@ -74,10 +74,71 @@ impl Hash for TableauVariable {
     }
 }
 
+/// Elementary transformation matrix.
+///
+/// # Type parameters
+/// - `T`: The type of the elements of the matrix.
+#[derive(Clone, Debug)]
+struct EtaMatrix<T>
+where
+    T: LUScalar,
+{
+    /// The index of the column that the matrix will be applied to.
+    column_index: usize,
+
+    /// The eta column.
+    eta_column: DVector<T>,
+}
+
+impl<T> EtaMatrix<T>
+where
+    T: LUScalar,
+{
+    /// Constructs a new `EtaMatrix`.
+    ///
+    /// # Parameters
+    /// - `column_index`: The index of the column that the matrix will be applied to.
+    /// - `eta_column`: The eta column.
+    ///
+    /// # Returns
+    /// A new instance of `EtaMatrix`.
+    pub fn new(column_index: usize, eta_column: DVector<T>) -> Self {
+        Self {
+            column_index,
+            eta_column,
+        }
+    }
+
+    /// Gets the index of the column that the matrix will be applied to.
+    ///
+    /// # Returns
+    /// The index of the column that the matrix will be applied to.
+    pub fn column_index(&self) -> usize {
+        self.column_index
+    }
+
+    /// Gets the eta column.
+    ///
+    /// # Returns
+    /// The eta column.
+    pub fn eta_column(&self) -> &DVector<T> {
+        &self.eta_column
+    }
+}
+
+impl<T> std::fmt::Display for EtaMatrix<T>
+where
+    T: LUScalar + Float + std::fmt::Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[{}|{}]", self.column_index, self.eta_column)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Tableau<T>
 where
-    T: Scalar + Float + std::fmt::Display,
+    T: LUScalar + std::fmt::Display,
 {
     /// Constraint matrix (A)
     constraint_matrix: DMatrix<T>,
@@ -99,43 +160,24 @@ where
 
     /// Maps indices to original variables
     index_to_variable: HashMap<usize, TableauVariable>,
+
+    /// List of Eta matrices for updating B inverse
+    eta_matrices: Vec<EtaMatrix<T>>,
+
+    /// LU decomposition of the basis matrix B (used for refactorization)
+    basis_lu: LU<T, Dyn, Dyn>,
 }
 
 impl<T> Tableau<T>
 where
-    T: LUScalar + Float + std::iter::Sum + std::fmt::Display,
+    T: LUScalar
+        + Float
+        + std::iter::Sum
+        + std::fmt::Display
+        + std::ops::MulAssign
+        + std::ops::AddAssign
+        + std::ops::SubAssign,
 {
-    /// Constructs a new `Tableau`.
-    ///
-    /// # Parameters
-    /// - `constraint_matrix`: The constraint matrix (A).
-    /// - `rhs`: The right-hand side values (b).
-    /// - `objective_coefficients`: The objective coefficients (c).
-    /// - `basic_indices`: The indices of the basic variables.
-    /// - `non_basic_indices`: The indices of the non-basic variables.
-    /// - `index_to_variable`: A mapping from indices to variables.
-    ///
-    /// # Returns
-    /// A new instance of `Tableau`.
-    pub fn new(
-        constraint_matrix: DMatrix<T>,
-        rhs: DVector<T>,
-        objective_coefficients: DVector<T>,
-        basic_indices: Vec<usize>,
-        non_basic_indices: Vec<usize>,
-        index_to_variable: HashMap<usize, TableauVariable>,
-    ) -> Self {
-        Self {
-            constraint_matrix,
-            rhs,
-            objective_coefficients,
-            basic_indices,
-            non_basic_indices,
-            objective_value: T::zero(),
-            index_to_variable,
-        }
-    }
-
     /// Gets the constraint matrix.
     ///
     /// # Returns
@@ -208,52 +250,92 @@ where
         &self.index_to_variable
     }
 
-    pub fn perform_basis_swap(&mut self, entering_index: usize, leaving_index: usize) {
-        Self::swap_basis_indices(self, entering_index, leaving_index);
-        Self::update_rhs_with_lu(self);
-        Self::update_objective_value(self);
-    }
-
-    /// Swaps the basis indices.
+    /// Extracts the basis matrix `B` from the constraint matrix.
     ///
-    /// # Parameters
-    /// - `tableau`: The tableau to modify.
-    /// - `entering_index`: The index of the entering variable.
-    fn swap_basis_indices(tableau: &mut Tableau<T>, entering_index: usize, leaving_index: usize) {
-        let leaving_var = tableau.basic_indices[leaving_index];
-        tableau.basic_indices[leaving_index] = entering_index;
-        tableau.non_basic_indices.retain(|&i| i != entering_index);
-        tableau.non_basic_indices.push(leaving_var);
+    /// # Returns
+    /// The basis matrix `B`.
+    fn get_basis_matrix(&self) -> Matrix<T, Dyn, Dyn, VecStorage<T, Dyn, Dyn>> {
+        self.constraint_matrix().select_columns(&self.basic_indices)
     }
 
-    fn update_rhs_with_lu(tableau: &mut Tableau<T>) {
-        let basis_matrix = tableau
-            .constraint_matrix()
-            .select_columns(&tableau.basic_indices);
-
-        // Perform LU decomposition on the basis matrix.
-        // This is a expensive operation, but this call uses the LAPACK backend
-        // which is extremely optimized and efficient, resulting in a very fast
-        // LU decomposition.
-        let lu = LU::new(basis_matrix);
-
-        // Solve for the new rhs values by solving B * rhs = b
-        // `rhs` represents the solution for the basic variables
-        lu.solve_mut(&mut tableau.rhs);
-    }
-
-    /// Updates the objective value.
+    /// Extracts the non-basis matrix `N` from the constraint matrix.
     ///
-    /// # Parameters
-    /// - `tableau`: The tableau to update.
-    fn update_objective_value(tableau: &mut Tableau<T>) {
-        tableau.objective_value = tableau
-            .basic_indices
-            .iter()
-            .zip(&tableau.rhs)
-            .map(|(&basic_index, &rhs_value)| {
-                tableau.objective_coefficients()[basic_index] * rhs_value
-            })
-            .sum();
+    /// # Returns
+    /// The non-basis matrix `N`.
+    fn get_non_basis_matrix(&self) -> Matrix<T, Dyn, Dyn, VecStorage<T, Dyn, Dyn>> {
+        self.constraint_matrix()
+            .select_columns(&self.non_basic_indices)
+    }
+
+    /// Retrieves the objective coefficients for basic variables `cb`.
+    ///
+    /// # Returns
+    /// The objective coefficients for basic variables.
+    fn get_cb(&self) -> DVector<T> {
+        DVector::from_iterator(
+            self.basic_indices.len(),
+            self.basic_indices
+                .iter()
+                .map(|&i| self.objective_coefficients[i]),
+        )
+    }
+
+    /// Retrieves the objective coefficients for non-basic variables `cn`.
+    ///
+    /// # Returns
+    /// The objective coefficients for non-basic variables.
+    fn get_cn(&self) -> DVector<T> {
+        DVector::from_iterator(
+            self.non_basic_indices.len(),
+            self.non_basic_indices
+                .iter()
+                .map(|&i| self.objective_coefficients[i]),
+        )
+    }
+
+    /// Forward transformation (FTRAN): Solves `B * d = a_entering
+    ///
+    /// # Arguments
+    /// * `a_entering` - The entering column vector
+    ///
+    /// # Returns
+    /// The solution vector `d`
+    fn ftran(&self, a_entering: &DVector<T>) -> Option<DVector<T>> {
+        // Solve B * d = a_entering.
+        // This is a expensive operation, but this implementation is based on the
+        // LAPACK routines which are highly optimized and may also use the GPU
+        // for acceleration.
+        let mut d = self.basis_lu.solve(a_entering)?;
+
+        for eta in &self.eta_matrices {
+            let idx = eta.column_index;
+            let multiplier = d[idx];
+            d -= &eta.eta_column * multiplier;
+            d[idx] = multiplier * eta.eta_column[idx];
+        }
+        Some(d)
+    }
+
+    /// Backward transformation (BTRAN): Solves `y^T = c_B^T * B^{-1}`
+    ///
+    /// # Arguments
+    /// - `c_b` - The objective coefficients for basic variables
+    ///
+    /// # Returns
+    /// The solution vector `y`
+    fn btran(&self, c_b: &DVector<T>) -> Option<DVector<T>> {
+        // Solve B^T * y = c_B.
+        // This is a expensive operation, but this implementation is based on the
+        // LAPACK routines which are highly optimized and may also use the GPU
+        // for acceleration.
+        let mut y = self.basis_lu.solve_transpose(c_b)?;
+
+        for eta in self.eta_matrices.iter().rev() {
+            let idx = eta.column_index;
+            let multiplier = y[idx];
+            y -= &eta.eta_column * multiplier;
+            y[idx] = multiplier * eta.eta_column[idx];
+        }
+        Some(y)
     }
 }
