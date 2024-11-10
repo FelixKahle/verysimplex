@@ -2,7 +2,7 @@
 
 #![allow(dead_code)]
 
-use std::fmt::Display;
+use std::{fmt::Display, rc::Rc};
 
 /// A trait for types that provide a vector of coefficients.
 ///
@@ -593,5 +593,71 @@ where
             writeln!(f, "{}", constraint)?;
         }
         Ok(())
+    }
+}
+
+/// A named variable.
+///
+/// Each variable has a unique identifier (`id`) to distinguish between
+/// variables with the same `name`, which can occur when user-defined variables
+/// share names with automatically generated slack variables.
+#[derive(Clone, Debug)]
+pub struct Variable {
+    /// Unique identifier for the variable.
+    /// This is used to differentiate between variables with the same name.
+    id: usize,
+
+    /// Name of the variable.
+    /// Using an `Rc` allows shared ownership of the name between multiple instances.
+    name: Rc<String>,
+}
+
+impl Variable {
+    /// Constructs a new `Variable`.
+    ///
+    /// # Parameters
+    /// - `id`: Unique identifier for the variable.
+    /// - `name`: Name of the variable.
+    ///
+    /// # Returns
+    /// A new instance of `Variable`.
+    pub fn new(id: usize, name: Rc<String>) -> Self {
+        Self { id, name }
+    }
+
+    /// Retrieves the unique identifier of the variable.
+    ///
+    /// # Returns
+    /// The unique identifier (`id`) of the variable.
+    pub fn id(&self) -> usize {
+        self.id
+    }
+
+    /// Retrieves the name of the variable.
+    ///
+    /// # Returns
+    /// The `Rc` wrapped name of the variable.
+    pub fn name(&self) -> &Rc<String> {
+        &self.name
+    }
+}
+
+impl std::fmt::Display for Variable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name)
+    }
+}
+
+impl PartialEq for Variable {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Eq for Variable {}
+
+impl std::hash::Hash for Variable {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
     }
 }

@@ -2,79 +2,16 @@
 
 #![allow(dead_code)]
 
-use std::{collections::HashMap, hash::Hash, rc::Rc};
+use std::collections::HashMap;
 
 use nalgebra::{DMatrix, DVector, Dyn, Matrix, VecStorage};
 use nalgebra_lapack::{LUScalar, LU};
-use num_traits::Float;
+use num_traits::{Float, One, Zero};
 
-/// A named variable in the tableau.
-///
-/// Each variable has a unique identifier (`id`) to distinguish between
-/// variables with the same `name`, which can occur when user-defined variables
-/// share names with automatically generated slack variables.
-#[derive(Clone, Debug)]
-pub struct TableauVariable {
-    /// Unique identifier for the variable.
-    /// This is used to differentiate between variables with the same name.
-    id: usize,
-
-    /// Name of the variable.
-    /// Using an `Rc` allows shared ownership of the name between multiple instances.
-    name: Rc<String>,
-}
-
-impl TableauVariable {
-    /// Constructs a new `TableauVariable`.
-    ///
-    /// # Parameters
-    /// - `id`: Unique identifier for the variable.
-    /// - `name`: Name of the variable.
-    ///
-    /// # Returns
-    /// A new instance of `TableauVariable`.
-    pub fn new(id: usize, name: Rc<String>) -> Self {
-        Self { id, name }
-    }
-
-    /// Retrieves the unique identifier of the variable.
-    ///
-    /// # Returns
-    /// The unique identifier (`id`) of the variable.
-    pub fn id(&self) -> usize {
-        self.id
-    }
-
-    /// Retrieves the name of the variable.
-    ///
-    /// # Returns
-    /// The `Rc` wrapped name of the variable.
-    pub fn name(&self) -> &Rc<String> {
-        &self.name
-    }
-}
-
-impl std::fmt::Display for TableauVariable {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.name)
-    }
-}
-
-impl PartialEq for TableauVariable {
-    fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
-    }
-}
-
-impl Eq for TableauVariable {}
-
-impl Hash for TableauVariable {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.id.hash(state);
-    }
-}
+use crate::problem::Variable;
 
 /// Elementary transformation matrix.
+/// Used to update the basis matrix way more efficiently than inverting it.
 ///
 /// # Type parameters
 /// - `T`: The type of the elements of the matrix.
@@ -135,11 +72,18 @@ where
     }
 }
 
+/// A simplex solver.
+///
+/// # Type parameters
+/// - `T`: The number type.
 #[derive(Debug, Clone)]
-pub struct Tableau<T>
+pub struct Solver<T>
 where
     T: LUScalar + std::fmt::Display,
 {
+    // Small tolerance.
+    epsilon: T,
+
     /// Constraint matrix (A)
     constraint_matrix: DMatrix<T>,
 
@@ -159,7 +103,7 @@ where
     objective_value: T,
 
     /// Maps indices to original variables
-    index_to_variable: HashMap<usize, TableauVariable>,
+    index_to_variable: HashMap<usize, Variable>,
 
     /// List of Eta matrices for updating B inverse
     eta_matrices: Vec<EtaMatrix<T>>,
@@ -168,15 +112,19 @@ where
     basis_lu: LU<T, Dyn, Dyn>,
 }
 
-impl<T> Tableau<T>
+impl<T> Solver<T>
 where
     T: LUScalar
-        + Float
+        + Zero
+        + One
         + std::iter::Sum
         + std::fmt::Display
+        + std::ops::Sub
         + std::ops::MulAssign
         + std::ops::AddAssign
-        + std::ops::SubAssign,
+        + std::ops::SubAssign
+        + PartialOrd
+        + nalgebra::ClosedSubAssign,
 {
     /// Gets the constraint matrix.
     ///
@@ -246,7 +194,7 @@ where
     ///
     /// # Returns
     /// A mapping from indices to original variables.
-    pub fn index_to_variable(&self) -> &HashMap<usize, TableauVariable> {
+    pub fn index_to_variable(&self) -> &HashMap<usize, Variable> {
         &self.index_to_variable
     }
 
@@ -337,5 +285,40 @@ where
             y[idx] = multiplier * eta.eta_column[idx];
         }
         Some(y)
+    }
+
+    /// Finds the index of the variable that will enter the basis or None if no variable can enter.
+    /// If this method returns None, the current solution is optimal.
+    ///
+    /// # Returns
+    /// The index of the variable that will enter the basis
+    /// or None if no variable can enter.
+    fn enter(&self) -> Option<usize> {
+        let y = self.btran(&self.get_cb())?;
+        let matrix_y_product = &self.constraint_matrix * y;
+        let reduced_costs = &self.objective_coefficients - matrix_y_product;
+        let entering_index = reduced_costs
+            .iter()
+            .enumerate()
+            .filter(|&(_, &rc)| rc > self.epsilon)
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(index, _)| index);
+        entering_index
+    }
+
+    /// Update Eta matrix after each pivot to track the changes to the inverse.
+    ///
+    /// # Arguments
+    /// - `exiting_index` - The index of the variable that is exiting the basis
+    fn update_eta_matrix(&mut self, exiting_index: usize) {
+        // Retrieve the updated pivot column from the constraint matrix
+        let pivot_column_index = self.basic_indices[exiting_index];
+        let eta_column = self
+            .constraint_matrix
+            .column(pivot_column_index)
+            .into_owned();
+
+        let eta = EtaMatrix::new(exiting_index, eta_column);
+        self.eta_matrices.push(eta);
     }
 }

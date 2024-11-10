@@ -2,10 +2,8 @@
 
 use problem::{Constraint, LinearProgram, Objective, Problem};
 
-mod linsys;
 mod problem;
-mod safeset;
-mod tableau;
+mod solver;
 
 fn main() {
     let program = LinearProgram::<f64>::builder()
