@@ -442,11 +442,7 @@ where
     /// # Returns
     /// The solution vector `d`
     fn ftran(&self, a_entering: &DVector<T>) -> Option<DVector<T>> {
-        // Solve B * d = a_entering.
-        // This is a expensive operation, but this implementation is based on the
-        // LAPACK routines which are highly optimized and may also use the GPU
-        // for acceleration.
-        let mut d = self.basis_lu.solve(a_entering)?;
+        let mut d = a_entering.clone();
 
         for eta in &self.eta_matrices {
             let idx = eta.column_index;
@@ -465,11 +461,7 @@ where
     /// # Returns
     /// The solution vector `y`
     fn btran(&self, c_b: &DVector<T>) -> Option<DVector<T>> {
-        // Solve B^T * y = c_B.
-        // This is a expensive operation, but this implementation is based on the
-        // LAPACK routines which are highly optimized and may also use the GPU
-        // for acceleration.
-        let mut y = self.basis_lu.solve_transpose(c_b)?;
+        let mut y = c_b.clone();
 
         for eta in self.eta_matrices.iter().rev() {
             let idx = eta.column_index;
