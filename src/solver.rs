@@ -2,11 +2,11 @@
 
 #![allow(dead_code)]
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use nalgebra::{DMatrix, DVector, Dyn, Matrix, VecStorage};
 use nalgebra_lapack::{LUScalar, LU};
-use num_traits::{Float, One, Zero};
+use num_traits::{One, Signed, Zero};
 
 use crate::problem::Variable;
 
@@ -65,10 +65,201 @@ where
 
 impl<T> std::fmt::Display for EtaMatrix<T>
 where
-    T: LUScalar + Float + std::fmt::Display,
+    T: LUScalar + std::fmt::Display,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "[{}|{}]", self.column_index, self.eta_column)
+    }
+}
+
+/// A variable value pair.
+///
+/// # Type parameters
+/// - `T`: The type of the value.
+#[derive(Clone, Debug)]
+pub struct VariableValue<T> {
+    /// The variable.
+    variable: Variable,
+
+    /// The value.
+    value: T,
+}
+
+impl<T> VariableValue<T>
+where
+    T: Copy,
+{
+    /// Constructs a new `VariableValue`.
+    ///
+    /// # Parameters
+    /// - `variable`: The variable.
+    /// - `value`: The value.
+    ///
+    /// # Returns
+    /// A new instance of `VariableValue`.
+    pub fn new(variable: Variable, value: T) -> Self {
+        Self { variable, value }
+    }
+
+    /// Gets the variable.
+    ///
+    /// # Returns
+    /// The variable.
+    pub fn variable(&self) -> &Variable {
+        &self.variable
+    }
+
+    /// Gets the value.
+    ///
+    /// # Returns
+    /// The value.
+    pub fn value(&self) -> T {
+        self.value
+    }
+}
+
+impl std::hash::Hash for VariableValue<f64> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.variable.hash(state);
+    }
+}
+
+impl std::cmp::PartialEq for VariableValue<f64> {
+    fn eq(&self, other: &Self) -> bool {
+        self.variable == other.variable
+    }
+}
+
+impl<T> std::fmt::Display for VariableValue<T>
+where
+    T: std::fmt::Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} = {}", self.variable, self.value)
+    }
+}
+
+/// A solution to a linear program.
+///
+/// # Type parameters
+/// - `T`: The number type.
+#[derive(Debug, Clone)]
+pub struct Solution<T>
+where
+    T: LUScalar,
+{
+    /// The objective value.
+    objective_value: T,
+
+    /// The variable values.
+    variable_values: HashSet<VariableValue<T>>,
+}
+
+impl<T> Solution<T>
+where
+    T: LUScalar,
+{
+    /// Constructs a new `Solution`.
+    ///
+    /// # Parameters
+    /// - `objective_value`: The objective value.
+    /// - `variable_values`: The variable values.
+    ///
+    /// # Returns
+    /// A new instance of `Solution`.
+    pub fn new(objective_value: T, variable_values: HashSet<VariableValue<T>>) -> Self {
+        Self {
+            objective_value,
+            variable_values,
+        }
+    }
+
+    /// Gets the objective value.
+    ///
+    /// # Returns
+    /// The objective value.
+    pub fn objective_value(&self) -> T {
+        self.objective_value
+    }
+
+    /// Gets the variable values.
+    ///
+    /// # Returns
+    /// The variable values.
+    pub fn variable_values(&self) -> &HashSet<VariableValue<T>> {
+        &self.variable_values
+    }
+}
+
+impl<'a, T> IntoIterator for &'a Solution<T>
+where
+    T: LUScalar,
+{
+    type Item = &'a VariableValue<T>;
+    type IntoIter = std::collections::hash_set::Iter<'a, VariableValue<T>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.variable_values.iter()
+    }
+}
+
+impl<T> std::fmt::Display for Solution<T>
+where
+    T: LUScalar + std::fmt::Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "Objective value: {}", self.objective_value)?;
+
+        for variable_value in &self.variable_values {
+            writeln!(f, "{}", variable_value)?;
+        }
+
+        Ok(())
+    }
+}
+
+/// The solution status of a solver.
+///
+/// # Type parameters
+/// - `T`: The number type.
+#[derive(Debug)]
+pub enum SolutionStatus<T>
+where
+    T: LUScalar,
+{
+    /// The solution is optimal.
+    Optimal(Solution<T>),
+
+    /// The solution is feasible.
+    Feasible(Solution<T>),
+
+    /// The solution is degenerate.
+    Degenerate(Solution<T>),
+
+    /// The solution is unbounded.
+    Unbounded,
+}
+
+impl<T> std::fmt::Display for SolutionStatus<T>
+where
+    T: LUScalar + std::fmt::Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SolutionStatus::Optimal(solution) => {
+                writeln!(f, "Optimal solution")?;
+                write!(f, "{}", solution)
+            }
+            SolutionStatus::Feasible(solution) => {
+                writeln!(f, "Feasible solution")?;
+                write!(f, "{}", solution)
+            }
+            SolutionStatus::Degenerate(solution) => {
+                writeln!(f, "Degenerate solution")?;
+                write!(f, "{}", solution)
+            }
+            SolutionStatus::Unbounded => write!(f, "Unbounded solution"),
+        }
     }
 }
 
@@ -123,8 +314,10 @@ where
         + std::ops::MulAssign
         + std::ops::AddAssign
         + std::ops::SubAssign
+        + std::ops::Neg<Output = T>
         + PartialOrd
-        + nalgebra::ClosedSubAssign,
+        + nalgebra::ClosedSubAssign
+        + Signed,
 {
     /// Gets the constraint matrix.
     ///
@@ -300,7 +493,7 @@ where
         let entering_index = reduced_costs
             .iter()
             .enumerate()
-            .filter(|&(_, &rc)| rc > self.epsilon)
+            .filter(|&(_, &rc)| rc > T::zero() + self.epsilon)
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(index, _)| index);
         entering_index
@@ -320,5 +513,59 @@ where
 
         let eta = EtaMatrix::new(exiting_index, eta_column);
         self.eta_matrices.push(eta);
+    }
+
+    /// Periodic refactorization step to reinitialize the basis matrix.
+    /// This is very expensive and should be called when we reach a high level of
+    /// numerical instability.
+    fn refactorize_basis(&mut self) {
+        self.basis_lu = LU::new(self.get_basis_matrix());
+        self.eta_matrices.clear();
+    }
+
+    // Utility method to swap a variable between basic and non-basic.
+    //
+    // # Arguments
+    // - `entering_index` - The index of the variable that is entering the basis
+    // - `exiting_index` - The index of the variable that is exiting the basis
+    fn swap_basis_indices(&mut self, entering_index: usize, exiting_index: usize) {
+        self.basic_indices[exiting_index] = entering_index;
+        self.non_basic_indices.retain(|&x| x != entering_index);
+    }
+
+    /// Checks if the solution has achieved optimality.
+    ///
+    /// # Arguments
+    /// - `reduced_costs` - The reduced costs of the variables
+    ///
+    /// # Returns
+    /// `true` if the solution is optimal, `false` otherwise.
+    fn is_optimal(&self, reduced_costs: &DVector<T>) -> bool {
+        reduced_costs.iter().all(|&cost| cost >= -self.epsilon)
+    }
+
+    /// Checks if the solution is unbounded.
+    ///
+    /// # Arguments
+    /// - `direction_vector` - The direction vector
+    fn is_unbounded(direction_vector: &DVector<T>) -> bool {
+        direction_vector.iter().all(|&entry| entry <= T::zero())
+    }
+
+    /// Gets reduced costs for non-basic variables.
+    ///
+    /// # Returns
+    /// The reduced costs for non-basic variables.
+    fn get_reduced_costs(&self) -> Option<DVector<T>> {
+        let y = self.btran(&self.get_cb())?;
+        Some(&self.objective_coefficients - &self.constraint_matrix * y)
+    }
+
+    /// Gets the direction vector.
+    ///
+    /// # Returns
+    /// The direction vector.
+    fn get_direction_vector(&self) -> Option<DVector<T>> {
+        self.ftran(&self.get_cn())
     }
 }
