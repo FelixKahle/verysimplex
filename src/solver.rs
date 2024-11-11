@@ -298,9 +298,6 @@ where
 
     /// List of Eta matrices for updating B inverse
     eta_matrices: Vec<EtaMatrix<T>>,
-
-    /// LU decomposition of the basis matrix B (used for refactorization)
-    basis_lu: LU<T, Dyn, Dyn>,
 }
 
 impl<T> Solver<T>
@@ -507,12 +504,28 @@ where
         self.eta_matrices.push(eta);
     }
 
-    /// Periodic refactorization step to reinitialize the basis matrix.
-    /// This is very expensive and should be called when we reach a high level of
-    /// numerical instability.
+    /// Refactorizes the basis matrix by performing an LU decomposition
+    /// and repopulating `eta_matrices` from the L and U factors.
     fn refactorize_basis(&mut self) {
-        self.basis_lu = LU::new(self.get_basis_matrix());
         self.eta_matrices.clear();
+        let lu_decomp = LU::new(self.get_basis_matrix());
+
+        let l_matrix = lu_decomp.l();
+        let u_matrix = lu_decomp.u();
+
+        for (i, column) in l_matrix.column_iter().enumerate() {
+            if l_matrix[(i, i)] != T::one() {
+                let eta_column = column.clone_owned();
+                let eta = EtaMatrix::new(i, eta_column);
+                self.eta_matrices.push(eta);
+            }
+        }
+
+        for (i, column) in u_matrix.column_iter().enumerate() {
+            let eta_column = column.clone_owned();
+            let eta = EtaMatrix::new(i, eta_column);
+            self.eta_matrices.push(eta);
+        }
     }
 
     // Utility method to swap a variable between basic and non-basic.
