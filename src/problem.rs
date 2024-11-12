@@ -2,7 +2,7 @@
 
 #![allow(dead_code)]
 
-use std::{fmt::Display, rc::Rc};
+use std::{collections::BTreeSet, fmt::Display, rc::Rc};
 
 /// A trait for types that provide a constant value.
 ///
@@ -37,9 +37,7 @@ where
     ///
     /// # Returns
     /// The count of coefficients as `usize`.
-    fn coefficients_len(&'a self) -> usize {
-        self.coefficients().count()
-    }
+    fn coefficients_len(&'a self) -> usize;
 }
 
 /// A named variable.
@@ -102,6 +100,18 @@ impl PartialEq for Variable {
 
 impl Eq for Variable {}
 
+impl PartialOrd for Variable {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.id.partial_cmp(&other.id)
+    }
+}
+
+impl Ord for Variable {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.id.cmp(&other.id)
+    }
+}
+
 impl std::hash::Hash for Variable {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.id.hash(state);
@@ -151,15 +161,29 @@ impl<T> VariableValue<T> {
     }
 }
 
-impl<T> std::hash::Hash for VariableValue<T> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.variable.hash(state);
+impl<T> PartialEq for VariableValue<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.variable == other.variable
     }
 }
 
-impl<T> std::cmp::PartialEq for VariableValue<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.variable == other.variable
+impl<T> Eq for VariableValue<T> {}
+
+impl<T> PartialOrd for VariableValue<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.variable.partial_cmp(&other.variable)
+    }
+}
+
+impl<T> Ord for VariableValue<T> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.variable.cmp(&other.variable)
+    }
+}
+
+impl<T> std::hash::Hash for VariableValue<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.variable.hash(state);
     }
 }
 
@@ -189,18 +213,24 @@ impl<T> Constant<T> for VariableValue<T> {
 #[derive(Debug, Clone)]
 pub struct LinearExpression<T> {
     /// Terms of the linear expression.
-    terms: Vec<VariableValue<T>>,
+    terms: BTreeSet<VariableValue<T>>,
 }
 
 impl<'a, T> Coefficients<'a, T> for LinearExpression<T>
 where
     T: 'a,
 {
-    type CoefficientsIter =
-        std::iter::Map<std::slice::Iter<'a, VariableValue<T>>, fn(&VariableValue<T>) -> &T>;
+    type CoefficientsIter = std::iter::Map<
+        std::collections::btree_set::Iter<'a, VariableValue<T>>,
+        fn(&'a VariableValue<T>) -> &'a T,
+    >;
 
     fn coefficients(&'a self) -> Self::CoefficientsIter {
         self.terms.iter().map(|term| &term.value)
+    }
+
+    fn coefficients_len(&'a self) -> usize {
+        self.terms.len()
     }
 }
 
@@ -212,7 +242,7 @@ impl<T> LinearExpression<T> {
     ///
     /// # Returns
     /// A new `LinearExpression` instance.
-    pub fn new(terms: Vec<VariableValue<T>>) -> Self {
+    pub fn new(terms: BTreeSet<VariableValue<T>>) -> Self {
         LinearExpression { terms }
     }
 
@@ -220,7 +250,7 @@ impl<T> LinearExpression<T> {
     ///
     /// # Returns
     /// A reference to the vector of `VariableValue`s.
-    pub fn terms(&self) -> &[VariableValue<T>] {
+    pub fn terms(&self) -> &BTreeSet<VariableValue<T>> {
         &self.terms
     }
 }
@@ -239,7 +269,7 @@ impl<T> LinearExpression<T> {
 /// # Returns
 /// A string representing the vector as a linear combination.
 #[inline]
-fn coefficients_vector_to_string<T>(vector: &Vec<VariableValue<T>>) -> String
+fn coefficients_vector_to_string<T>(vector: &BTreeSet<VariableValue<T>>) -> String
 where
     T: std::fmt::Display,
 {
@@ -256,6 +286,18 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{}", coefficients_vector_to_string(&self.terms))
+    }
+}
+
+impl<T> From<BTreeSet<VariableValue<T>>> for LinearExpression<T> {
+    fn from(terms: BTreeSet<VariableValue<T>>) -> Self {
+        LinearExpression::new(terms)
+    }
+}
+
+impl<T> From<Vec<VariableValue<T>>> for LinearExpression<T> {
+    fn from(terms: Vec<VariableValue<T>>) -> Self {
+        LinearExpression::new(terms.into_iter().collect())
     }
 }
 
@@ -307,14 +349,24 @@ impl<'a, T> Coefficients<'a, T> for Constraint<T>
 where
     T: 'a,
 {
-    type CoefficientsIter =
-        std::iter::Map<std::slice::Iter<'a, VariableValue<T>>, fn(&VariableValue<T>) -> &T>;
+    type CoefficientsIter = std::iter::Map<
+        std::collections::btree_set::Iter<'a, VariableValue<T>>,
+        fn(&'a VariableValue<T>) -> &'a T,
+    >;
 
     fn coefficients(&'a self) -> Self::CoefficientsIter {
         match self {
             Constraint::Equal(expr, _) => expr.coefficients(),
             Constraint::LessOrEqual(expr, _) => expr.coefficients(),
             Constraint::GreaterOrEqual(expr, _) => expr.coefficients(),
+        }
+    }
+
+    fn coefficients_len(&'a self) -> usize {
+        match self {
+            Constraint::Equal(expr, _) => expr.coefficients_len(),
+            Constraint::LessOrEqual(expr, _) => expr.coefficients_len(),
+            Constraint::GreaterOrEqual(expr, _) => expr.coefficients_len(),
         }
     }
 }
@@ -343,13 +395,22 @@ impl<'a, T> Coefficients<'a, T> for Objective<T>
 where
     T: 'a,
 {
-    type CoefficientsIter =
-        std::iter::Map<std::slice::Iter<'a, VariableValue<T>>, fn(&VariableValue<T>) -> &T>;
+    type CoefficientsIter = std::iter::Map<
+        std::collections::btree_set::Iter<'a, VariableValue<T>>,
+        fn(&'a VariableValue<T>) -> &'a T,
+    >;
 
     fn coefficients(&'a self) -> Self::CoefficientsIter {
         match self {
             Objective::Maximize(expr) => expr.coefficients(),
             Objective::Minimize(expr) => expr.coefficients(),
+        }
+    }
+
+    fn coefficients_len(&'a self) -> usize {
+        match self {
+            Objective::Maximize(expr) => expr.coefficients_len(),
+            Objective::Minimize(expr) => expr.coefficients_len(),
         }
     }
 }
@@ -415,10 +476,7 @@ where
     }
 }
 
-impl<T> LinearProgram<T>
-where
-    T: Copy,
-{
+impl<T> LinearProgram<T> {
     /// Creates a new `LinearProgram` with the given objective and constraints.
     ///
     /// # Arguments
@@ -477,6 +535,14 @@ where
     pub fn objective(&self) -> &Objective<T> {
         &self.objective
     }
+
+    /// Returns a builder for a `LinearProgram`.
+    ///
+    /// # Returns
+    /// A `LinearProgramBuilder` to build a `LinearProgram`.
+    pub fn builder() -> LinearProgramBuilder<T> {
+        LinearProgramBuilder::new()
+    }
 }
 
 /// Enum for errors that may occur when building a `LinearProgram`.
@@ -514,5 +580,63 @@ impl Display for LinearProgramBuilderError {
                 write!(f, "objective function is missing")
             }
         }
+    }
+}
+
+/// Builder for creating a `LinearProgram`.
+/// The builder allows for constructing a `LinearProgram` in a more ergonomic way.
+pub struct LinearProgramBuilder<T> {
+    objective: Option<Objective<T>>,
+    constraints: Vec<Constraint<T>>,
+}
+
+impl<T> LinearProgramBuilder<T> {
+    /// Creates a new `LinearProgramBuilder`.
+    ///
+    /// # Returns
+    /// A new `LinearProgramBuilder`.
+    pub fn new() -> Self {
+        LinearProgramBuilder {
+            objective: None,
+            constraints: Vec::new(),
+        }
+    }
+
+    /// Sets the objective function of the linear program.
+    ///
+    /// # Arguments
+    /// - `objective`: The objective function of the linear program.
+    ///
+    /// # Returns
+    /// A mutable reference to the builder.
+    pub fn set_objective(mut self, objective: Objective<T>) -> Self {
+        self.objective = Some(objective);
+        self
+    }
+
+    /// Adds a constraint to the linear program.
+    ///
+    /// # Arguments
+    /// - `constraint`: The constraint to add to the linear program.
+    ///
+    /// # Returns
+    /// A mutable reference to the builder.
+    pub fn with_constraint(mut self, constraint: Constraint<T>) -> Self {
+        self.constraints.push(constraint);
+        self
+    }
+
+    /// Builds the `LinearProgram` from the builder.
+    ///
+    /// # Returns
+    /// A `Result` with the `LinearProgram` or a `LinearProgramBuilderError`
+    /// if the builder is missing required fields.
+    pub fn build(self) -> Result<LinearProgram<T>, LinearProgramBuilderError> {
+        let objective = self
+            .objective
+            .ok_or(LinearProgramBuilderError::MissingObjective)?;
+        let problem = LinearProgram::new(objective, self.constraints)?;
+
+        Ok(problem)
     }
 }
