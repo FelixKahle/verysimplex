@@ -4,11 +4,11 @@
 
 use std::collections::{HashMap, HashSet};
 
-use nalgebra::{DMatrix, DVector, Dyn, Matrix, VecStorage};
+use nalgebra::{DMatrix, DVector, DVectorView, Dyn, Matrix, VecStorage};
 use nalgebra_lapack::{LUScalar, LU};
 use num_traits::{One, Signed, Zero};
 
-use crate::problem::Variable;
+use crate::problem::{Variable, VariableValue};
 
 /// Elementary transformation matrix.
 /// Used to update the basis matrix way more efficiently than inverting it.
@@ -69,73 +69,6 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "[{}|{}]", self.column_index, self.eta_column)
-    }
-}
-
-/// A variable value pair.
-///
-/// # Type parameters
-/// - `T`: The type of the value.
-#[derive(Clone, Debug)]
-pub struct VariableValue<T> {
-    /// The variable.
-    variable: Variable,
-
-    /// The value.
-    value: T,
-}
-
-impl<T> VariableValue<T>
-where
-    T: Copy,
-{
-    /// Constructs a new `VariableValue`.
-    ///
-    /// # Parameters
-    /// - `variable`: The variable.
-    /// - `value`: The value.
-    ///
-    /// # Returns
-    /// A new instance of `VariableValue`.
-    pub fn new(variable: Variable, value: T) -> Self {
-        Self { variable, value }
-    }
-
-    /// Gets the variable.
-    ///
-    /// # Returns
-    /// The variable.
-    pub fn variable(&self) -> &Variable {
-        &self.variable
-    }
-
-    /// Gets the value.
-    ///
-    /// # Returns
-    /// The value.
-    pub fn value(&self) -> T {
-        self.value
-    }
-}
-
-impl std::hash::Hash for VariableValue<f64> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.variable.hash(state);
-    }
-}
-
-impl std::cmp::PartialEq for VariableValue<f64> {
-    fn eq(&self, other: &Self) -> bool {
-        self.variable == other.variable
-    }
-}
-
-impl<T> std::fmt::Display for VariableValue<T>
-where
-    T: std::fmt::Display,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} = {}", self.variable, self.value)
     }
 }
 
@@ -222,7 +155,7 @@ where
 ///
 /// # Type parameters
 /// - `T`: The number type.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum SolutionStatus<T>
 where
     T: LUScalar,
@@ -316,6 +249,43 @@ where
         + nalgebra::ClosedSubAssign
         + Signed,
 {
+    /// Constructs a new `Solver`.
+    ///
+    /// # Parameters
+    /// - `objective_value`: The objective value.
+    /// - `constraint_matrix`: The constraint matrix (A).
+    /// - `rhs`: The right-hand side values (b).
+    /// - `objective_coefficients`: The objective coefficients (c) for all variables.
+    /// - `basic_indices`: The indices of basic variables.
+    /// - `non_basic_indices`: The indices of non-basic variables.
+    /// - `index_to_variable`: Maps indices to original variables.
+    /// - `epsilon`: A small tolerance.
+    ///
+    /// # Returns
+    /// A new instance of `Solver`.
+    pub fn new(
+        objective_value: T,
+        constraint_matrix: DMatrix<T>,
+        rhs: DVector<T>,
+        objective_coefficients: DVector<T>,
+        basic_indices: Vec<usize>,
+        non_basic_indices: Vec<usize>,
+        index_to_variable: HashMap<usize, Variable>,
+        epsilon: T,
+    ) -> Self {
+        Self {
+            epsilon,
+            constraint_matrix,
+            rhs,
+            objective_coefficients,
+            basic_indices,
+            non_basic_indices,
+            objective_value,
+            index_to_variable,
+            eta_matrices: Vec::new(),
+        }
+    }
+
     /// Gets the constraint matrix.
     ///
     /// # Returns
@@ -438,8 +408,8 @@ where
     ///
     /// # Returns
     /// The solution vector `d`
-    fn ftran(&self, a_entering: &DVector<T>) -> Option<DVector<T>> {
-        let mut d = a_entering.clone();
+    fn ftran(&self, a_entering: &DVectorView<T>) -> Option<DVector<T>> {
+        let mut d = a_entering.clone_owned();
 
         for eta in &self.eta_matrices {
             let idx = eta.column_index;
@@ -457,8 +427,8 @@ where
     ///
     /// # Returns
     /// The solution vector `y`
-    fn btran(&self, c_b: &DVector<T>) -> Option<DVector<T>> {
-        let mut y = c_b.clone();
+    fn btran(&self, c_b: &DVectorView<T>) -> Option<DVector<T>> {
+        let mut y = c_b.clone_owned();
 
         for eta in self.eta_matrices.iter().rev() {
             let idx = eta.column_index;
@@ -475,8 +445,8 @@ where
     /// # Returns
     /// The index of the variable that will enter the basis
     /// or None if no variable can enter.
-    fn enter(&self) -> Option<usize> {
-        let y = self.btran(&self.get_cb())?;
+    fn entering_index(&self) -> Option<usize> {
+        let y = self.btran(&self.get_cb().as_view())?;
         let matrix_y_product = &self.constraint_matrix * y;
         let reduced_costs = &self.objective_coefficients - matrix_y_product;
         let entering_index = reduced_costs
@@ -486,6 +456,39 @@ where
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(index, _)| index);
         entering_index
+    }
+
+    /// Finds the index of the variable that will leave the basis or None if no variable can leave.
+    ///
+    /// # Arguments
+    /// - `entering` - The index of the variable that will enter the basis
+    ///
+    /// # Returns
+    /// The index of the variable that will leave the basis
+    /// or None if no variable can leave.
+    pub fn leaving_index(&self, entering: usize) -> Option<usize> {
+        let a_entering = self.constraint_matrix.column(entering);
+        let direction_vector = self.ftran(&a_entering)?;
+
+        // Calculate the minimum ratio.
+        let mut min_ratio = None;
+        let mut leaving_index = None;
+
+        for (i, &direction) in direction_vector.iter().enumerate() {
+            // Only consider positive entries in the direction vector
+            if direction > T::zero() {
+                // Safe to divide here because direction is positive
+                // and thus cannot be zero.
+                let ratio = self.rhs[i] / direction;
+
+                if min_ratio.is_none() || ratio < min_ratio.unwrap() {
+                    min_ratio = Some(ratio);
+                    leaving_index = Some(i);
+                }
+            }
+        }
+
+        leaving_index
     }
 
     /// Update Eta matrix after each pivot to track the changes to the inverse.
@@ -545,8 +548,11 @@ where
     ///
     /// # Returns
     /// `true` if the solution is optimal, `false` otherwise.
-    fn is_optimal(&self, reduced_costs: &DVector<T>) -> bool {
-        reduced_costs.iter().all(|&cost| cost >= -self.epsilon)
+    fn is_optimal(reduced_costs: &DVector<T>, epsilon: T) -> bool {
+        // Ensure epsilon is negative
+        let epsilon = -epsilon.abs();
+
+        reduced_costs.iter().all(|&cost| cost >= -epsilon)
     }
 
     /// Checks if the solution is unbounded.
@@ -562,7 +568,7 @@ where
     /// # Returns
     /// The reduced costs for non-basic variables.
     fn get_reduced_costs(&self) -> Option<DVector<T>> {
-        let y = self.btran(&self.get_cb())?;
+        let y = self.btran(&self.get_cb().as_view())?;
         Some(&self.objective_coefficients - &self.constraint_matrix * y)
     }
 
@@ -571,6 +577,6 @@ where
     /// # Returns
     /// The direction vector.
     fn get_direction_vector(&self) -> Option<DVector<T>> {
-        self.ftran(&self.get_cn())
+        self.ftran(&self.get_cn().as_view())
     }
 }
