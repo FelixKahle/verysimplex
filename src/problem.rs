@@ -161,31 +161,16 @@ impl<T> VariableValue<T> {
     }
 }
 
-impl<T> PartialEq for VariableValue<T> {
+impl<T> PartialEq for VariableValue<T>
+where
+    T: PartialEq,
+{
     fn eq(&self, other: &Self) -> bool {
-        self.variable == other.variable
+        self.variable == other.variable && self.value == other.value
     }
 }
 
-impl<T> Eq for VariableValue<T> {}
-
-impl<T> PartialOrd for VariableValue<T> {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.variable.partial_cmp(&other.variable)
-    }
-}
-
-impl<T> Ord for VariableValue<T> {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.variable.cmp(&other.variable)
-    }
-}
-
-impl<T> std::hash::Hash for VariableValue<T> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.variable.hash(state);
-    }
-}
+impl<T> Eq for VariableValue<T> where T: Eq {}
 
 impl<T> std::fmt::Display for VariableValue<T>
 where
@@ -202,6 +187,107 @@ impl<T> Constant<T> for VariableValue<T> {
     }
 }
 
+/// A unique variable value pair.
+///
+/// # Note
+/// This type is special because it only compares the variable and not the value.
+/// This is necessary as in linear programming we expect only one value for a variable in a term.
+///
+/// # Type parameters
+/// - `T`: The type of the value.
+#[derive(Clone, Debug)]
+pub struct UniqueVariableValue<T> {
+    /// The variable value pair.
+    variable_value: VariableValue<T>,
+}
+
+impl<T> UniqueVariableValue<T> {
+    /// Creates a new `UniqueVariableValue` from a `VariableValue`.
+    ///
+    /// # Arguments
+    /// - `variable_value`: The `VariableValue` to wrap.
+    pub fn new(variable_value: VariableValue<T>) -> Self {
+        UniqueVariableValue { variable_value }
+    }
+
+    /// Returns a reference to the inner `VariableValue`.
+    ///
+    /// # Returns
+    /// A reference to the inner `VariableValue`.
+    pub fn inner(&self) -> &VariableValue<T> {
+        &self.variable_value
+    }
+
+    /// Returns a reference to the variable.
+    ///
+    /// # Returns
+    /// A reference to the variable.
+    pub fn variable(&self) -> &Variable {
+        &self.variable_value.variable
+    }
+
+    /// Returns a reference to the value.
+    ///
+    /// # Returns
+    /// A reference to the value.
+    pub fn value(&self) -> &T {
+        &self.variable_value.value
+    }
+}
+
+impl<T> PartialEq for UniqueVariableValue<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.variable() == other.variable()
+    }
+}
+
+impl<T> Eq for UniqueVariableValue<T> {}
+
+impl<T> PartialOrd for UniqueVariableValue<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.variable().partial_cmp(other.variable())
+    }
+}
+
+impl<T> Ord for UniqueVariableValue<T> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.variable().cmp(other.variable())
+    }
+}
+
+impl<T> std::hash::Hash for UniqueVariableValue<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.variable().hash(state);
+    }
+}
+
+impl<T> std::fmt::Display for UniqueVariableValue<T>
+where
+    T: std::fmt::Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} = {}", self.variable(), self.value())
+    }
+}
+
+impl<T> Constant<T> for UniqueVariableValue<T> {
+    fn constant(&self) -> &T {
+        self.value()
+    }
+}
+
+impl<T> From<VariableValue<T>> for UniqueVariableValue<T> {
+    fn from(variable_value: VariableValue<T>) -> Self {
+        UniqueVariableValue::new(variable_value)
+    }
+}
+
+impl<T> Into<VariableValue<T>> for UniqueVariableValue<T> {
+    fn into(self) -> VariableValue<T> {
+        self.variable_value
+    }
+}
+
 /// Represents a linear expression in a linear program.
 ///
 /// A `LinearExpression` is a collection of coefficients representing
@@ -213,7 +299,7 @@ impl<T> Constant<T> for VariableValue<T> {
 #[derive(Debug, Clone)]
 pub struct LinearExpression<T> {
     /// Terms of the linear expression.
-    terms: BTreeSet<VariableValue<T>>,
+    terms: BTreeSet<UniqueVariableValue<T>>,
 }
 
 impl<'a, T> Coefficients<'a, T> for LinearExpression<T>
@@ -221,12 +307,12 @@ where
     T: 'a,
 {
     type CoefficientsIter = std::iter::Map<
-        std::collections::btree_set::Iter<'a, VariableValue<T>>,
-        fn(&'a VariableValue<T>) -> &'a T,
+        std::collections::btree_set::Iter<'a, UniqueVariableValue<T>>,
+        fn(&'a UniqueVariableValue<T>) -> &'a T,
     >;
 
     fn coefficients(&'a self) -> Self::CoefficientsIter {
-        self.terms.iter().map(|term| &term.value)
+        self.terms.iter().map(|term| &term.value())
     }
 
     fn coefficients_len(&'a self) -> usize {
@@ -242,7 +328,7 @@ impl<T> LinearExpression<T> {
     ///
     /// # Returns
     /// A new `LinearExpression` instance.
-    pub fn new(terms: BTreeSet<VariableValue<T>>) -> Self {
+    pub fn new(terms: BTreeSet<UniqueVariableValue<T>>) -> Self {
         LinearExpression { terms }
     }
 
@@ -250,7 +336,7 @@ impl<T> LinearExpression<T> {
     ///
     /// # Returns
     /// A reference to the vector of `VariableValue`s.
-    pub fn terms(&self) -> &BTreeSet<VariableValue<T>> {
+    pub fn terms(&self) -> &BTreeSet<UniqueVariableValue<T>> {
         &self.terms
     }
 }
@@ -269,7 +355,7 @@ impl<T> LinearExpression<T> {
 /// # Returns
 /// A string representing the vector as a linear combination.
 #[inline]
-fn coefficients_vector_to_string<T>(vector: &BTreeSet<VariableValue<T>>) -> String
+fn coefficients_vector_to_string<T>(vector: &BTreeSet<UniqueVariableValue<T>>) -> String
 where
     T: std::fmt::Display,
 {
@@ -289,14 +375,14 @@ where
     }
 }
 
-impl<T> From<BTreeSet<VariableValue<T>>> for LinearExpression<T> {
-    fn from(terms: BTreeSet<VariableValue<T>>) -> Self {
+impl<T> From<BTreeSet<UniqueVariableValue<T>>> for LinearExpression<T> {
+    fn from(terms: BTreeSet<UniqueVariableValue<T>>) -> Self {
         LinearExpression::new(terms)
     }
 }
 
-impl<T> From<Vec<VariableValue<T>>> for LinearExpression<T> {
-    fn from(terms: Vec<VariableValue<T>>) -> Self {
+impl<T> From<Vec<UniqueVariableValue<T>>> for LinearExpression<T> {
+    fn from(terms: Vec<UniqueVariableValue<T>>) -> Self {
         LinearExpression::new(terms.into_iter().collect())
     }
 }
@@ -350,8 +436,8 @@ where
     T: 'a,
 {
     type CoefficientsIter = std::iter::Map<
-        std::collections::btree_set::Iter<'a, VariableValue<T>>,
-        fn(&'a VariableValue<T>) -> &'a T,
+        std::collections::btree_set::Iter<'a, UniqueVariableValue<T>>,
+        fn(&'a UniqueVariableValue<T>) -> &'a T,
     >;
 
     fn coefficients(&'a self) -> Self::CoefficientsIter {
@@ -396,8 +482,8 @@ where
     T: 'a,
 {
     type CoefficientsIter = std::iter::Map<
-        std::collections::btree_set::Iter<'a, VariableValue<T>>,
-        fn(&'a VariableValue<T>) -> &'a T,
+        std::collections::btree_set::Iter<'a, UniqueVariableValue<T>>,
+        fn(&'a UniqueVariableValue<T>) -> &'a T,
     >;
 
     fn coefficients(&'a self) -> Self::CoefficientsIter {

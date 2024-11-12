@@ -23,23 +23,23 @@ fn main() {
         LinearProgram::builder()
             .set_objective(Objective::Maximize(
                 vec![
-                    VariableValue::new(x.clone(), 3.0),
-                    VariableValue::new(y.clone(), 5.0),
+                    VariableValue::new(x.clone(), 3.0).into(),
+                    VariableValue::new(y.clone(), 5.0).into(),
                 ]
                 .into(),
             ))
             .with_constraint(Constraint::GreaterOrEqual(
                 vec![
-                    VariableValue::new(x.clone(), 6.0),
-                    VariableValue::new(y.clone(), 10.0),
+                    VariableValue::new(x.clone(), 6.0).into(),
+                    VariableValue::new(y.clone(), 10.0).into(),
                 ]
                 .into(),
                 0.0,
             ))
             .with_constraint(Constraint::GreaterOrEqual(
                 vec![
-                    VariableValue::new(x.clone(), 0.0),
-                    VariableValue::new(y.clone(), 10.0),
+                    VariableValue::new(x.clone(), 0.0).into(),
+                    VariableValue::new(y.clone(), 10.0).into(),
                 ]
                 .into(),
                 0.0,
