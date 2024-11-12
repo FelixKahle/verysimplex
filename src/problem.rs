@@ -187,14 +187,59 @@ impl<T> Constant<T> for VariableValue<T> {
     }
 }
 
-/// A unique variable value pair.
+//// A wrapper around `VariableValue<T>` that enforces uniqueness of each variable
+/// in a `LinearExpression`. This wrapper is necessary to maintain the integrity
+/// of mathematical operations within linear programming models and to ensure
+/// that each variable only appears once in a given expression.
 ///
-/// # Note
-/// This type is special because it only compares the variable and not the value.
-/// This is necessary as in linear programming we expect only one value for a variable in a term.
+/// # Why `UniqueVariableValue<T>`?
 ///
-/// # Type parameters
-/// - `T`: The type of the value.
+/// In linear programming, expressions and constraints are typically represented
+/// as linear combinations of variables, where each variable has a coefficient.
+/// Each variable in these linear expressions should be unique within the scope
+/// of a single expression, meaning that a variable should appear only once,
+/// with a single coefficient value.
+///
+/// ## Challenges
+///
+/// Without this wrapper, it would be possible for a `Variable` to appear multiple
+/// times in a `LinearExpression` with different `value` fields. This could lead
+/// to logical inconsistencies or incorrect results during computations, as the
+/// mathematical operations might implicitly assume a single occurrence per variable.
+///
+/// For example, without `UniqueVariableValue<T>`, adding two expressions might
+/// inadvertently double-count variables that share the same name but have
+/// different coefficient values. This would result in an incorrect linear
+/// expression and potentially inaccurate optimization results.
+///
+/// ## Why Use a Wrapper Rather Than Just `VariableValue<T>`?
+///
+/// We could consider using `VariableValue<T>` directly within a collection,
+/// such as `BTreeSet`, to enforce unique terms in a linear expression. However,
+/// `VariableValue<T>` includes both the `Variable` (representing the variable's
+/// identity) and the `value` (representing its coefficient), and directly
+/// using it would mean the `BTreeSet` enforces uniqueness based on both the
+/// variable and the coefficient value.
+///
+/// This is problematic because we want uniqueness to depend only on the
+/// `Variable` identifier, not on its coefficient. Different coefficients for
+/// the same variable should not lead to duplicate entries in the expression.
+///
+/// ## How `UniqueVariableValue<T>` Solves This Problem
+///
+/// By wrapping `VariableValue<T>` in `UniqueVariableValue<T>`, we can redefine
+/// equality and ordering so that they depend only on the `Variable` (and not
+/// on the coefficient `value`). In this way, `UniqueVariableValue<T>` ensures
+/// that each `Variable` appears only once in a `LinearExpression`.
+///
+/// This design allows us to safely use `UniqueVariableValue<T>` in a `BTreeSet`
+/// or other collections that require unique elements, ensuring that each
+/// variable's identity is unique within a given expression without regard
+/// to the value of its coefficient.
+///
+/// By ensuring uniqueness through `UniqueVariableValue<T>`, we make our linear
+/// programming model both robust and mathematically sound, allowing accurate
+/// representation and manipulation of linear expressions in optimization problems.
 #[derive(Clone, Debug)]
 pub struct UniqueVariableValue<T> {
     /// The variable value pair.
@@ -202,11 +247,24 @@ pub struct UniqueVariableValue<T> {
 }
 
 impl<T> UniqueVariableValue<T> {
+    /// Creates a new `UniqueVariableValue`.
+    ///
+    /// # Arguments
+    /// - `variable`: The variable.
+    /// - `value`: The value.
+    ///
+    /// # Returns
+    /// A new instance of `UniqueVariableValue`.
+    pub fn new(variable: Variable, value: T) -> Self {
+        UniqueVariableValue {
+            variable_value: VariableValue::new(variable, value),
+        }
+    }
     /// Creates a new `UniqueVariableValue` from a `VariableValue`.
     ///
     /// # Arguments
     /// - `variable_value`: The `VariableValue` to wrap.
-    pub fn new(variable_value: VariableValue<T>) -> Self {
+    pub fn from_variable_value(variable_value: VariableValue<T>) -> Self {
         UniqueVariableValue { variable_value }
     }
 
@@ -214,6 +272,7 @@ impl<T> UniqueVariableValue<T> {
     ///
     /// # Returns
     /// A reference to the inner `VariableValue`.
+    #[inline]
     pub fn inner(&self) -> &VariableValue<T> {
         &self.variable_value
     }
@@ -222,6 +281,7 @@ impl<T> UniqueVariableValue<T> {
     ///
     /// # Returns
     /// A reference to the variable.
+    #[inline]
     pub fn variable(&self) -> &Variable {
         &self.variable_value.variable
     }
@@ -230,6 +290,7 @@ impl<T> UniqueVariableValue<T> {
     ///
     /// # Returns
     /// A reference to the value.
+    #[inline]
     pub fn value(&self) -> &T {
         &self.variable_value.value
     }
@@ -277,12 +338,14 @@ impl<T> Constant<T> for UniqueVariableValue<T> {
 }
 
 impl<T> From<VariableValue<T>> for UniqueVariableValue<T> {
+    #[inline]
     fn from(variable_value: VariableValue<T>) -> Self {
-        UniqueVariableValue::new(variable_value)
+        UniqueVariableValue::from_variable_value(variable_value)
     }
 }
 
 impl<T> Into<VariableValue<T>> for UniqueVariableValue<T> {
+    #[inline]
     fn into(self) -> VariableValue<T> {
         self.variable_value
     }
@@ -354,7 +417,7 @@ impl<T> LinearExpression<T> {
 ///
 /// # Returns
 /// A string representing the vector as a linear combination.
-#[inline]
+#[inline(always)]
 fn coefficients_vector_to_string<T>(vector: &BTreeSet<UniqueVariableValue<T>>) -> String
 where
     T: std::fmt::Display,
@@ -626,6 +689,7 @@ impl<T> LinearProgram<T> {
     ///
     /// # Returns
     /// A `LinearProgramBuilder` to build a `LinearProgram`.
+    #[inline]
     pub fn builder() -> LinearProgramBuilder<T> {
         LinearProgramBuilder::new()
     }
