@@ -187,7 +187,7 @@ impl<T> Constant<T> for VariableValue<T> {
     }
 }
 
-//// A wrapper around `VariableValue<T>` that enforces uniqueness of each variable
+/// A wrapper around `VariableValue<T>` that enforces uniqueness of each variable
 /// in a `LinearExpression`. This wrapper is necessary to maintain the integrity
 /// of mathematical operations within linear programming models and to ensure
 /// that each variable only appears once in a given expression.
