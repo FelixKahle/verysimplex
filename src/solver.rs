@@ -26,69 +26,10 @@ use nalgebra::{DMatrix, DVector, DVectorView, Dyn, Matrix, VecStorage};
 use nalgebra_lapack::{LUScalar, LU};
 use num_traits::{One, Signed, Zero};
 
-use crate::problem::{Variable, VariableValue};
-
-/// Elementary transformation matrix.
-/// Used to update the basis matrix way more efficiently than inverting it.
-///
-/// # Type parameters
-/// - `T`: The type of the elements of the matrix.
-#[derive(Clone, Debug)]
-struct EtaMatrix<T>
-where
-    T: LUScalar,
-{
-    /// The index of the column that the matrix will be applied to.
-    column_index: usize,
-
-    /// The eta column.
-    eta_column: DVector<T>,
-}
-
-impl<T> EtaMatrix<T>
-where
-    T: LUScalar,
-{
-    /// Constructs a new `EtaMatrix`.
-    ///
-    /// # Parameters
-    /// - `column_index`: The index of the column that the matrix will be applied to.
-    /// - `eta_column`: The eta column.
-    ///
-    /// # Returns
-    /// A new instance of `EtaMatrix`.
-    pub fn new(column_index: usize, eta_column: DVector<T>) -> Self {
-        Self {
-            column_index,
-            eta_column,
-        }
-    }
-
-    /// Gets the index of the column that the matrix will be applied to.
-    ///
-    /// # Returns
-    /// The index of the column that the matrix will be applied to.
-    pub fn column_index(&self) -> usize {
-        self.column_index
-    }
-
-    /// Gets the eta column.
-    ///
-    /// # Returns
-    /// The eta column.
-    pub fn eta_column(&self) -> &DVector<T> {
-        &self.eta_column
-    }
-}
-
-impl<T> std::fmt::Display for EtaMatrix<T>
-where
-    T: LUScalar + std::fmt::Display,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[{}|{}]", self.column_index, self.eta_column)
-    }
-}
+use crate::{
+    etam::EtaMatrix,
+    problem::{Variable, VariableValue},
+};
 
 /// A solution to a linear program.
 ///
@@ -426,16 +367,16 @@ where
     ///
     /// # Returns
     /// The solution vector `d`
-    fn ftran(&self, a_entering: &DVectorView<T>) -> Option<DVector<T>> {
+    fn ftran(&self, a_entering: &DVectorView<T>) -> DVector<T> {
         let mut d = a_entering.clone_owned();
 
         for eta in &self.eta_matrices {
-            let idx = eta.column_index;
+            let idx = eta.column_index();
             let multiplier = d[idx];
-            d -= &eta.eta_column * multiplier;
-            d[idx] = multiplier * eta.eta_column[idx];
+            d -= eta.eta_column() * multiplier;
+            d[idx] = multiplier * eta.eta_column()[idx];
         }
-        Some(d)
+        d
     }
 
     /// Backward transformation (BTRAN): Solves `y^T = c_B^T * B^{-1}`
@@ -445,16 +386,16 @@ where
     ///
     /// # Returns
     /// The solution vector `y`
-    fn btran(&self, c_b: &DVectorView<T>) -> Option<DVector<T>> {
+    fn btran(&self, c_b: &DVectorView<T>) -> DVector<T> {
         let mut y = c_b.clone_owned();
 
         for eta in self.eta_matrices.iter().rev() {
-            let idx = eta.column_index;
+            let idx = eta.column_index();
             let multiplier = y[idx];
-            y -= &eta.eta_column * multiplier;
-            y[idx] = multiplier * eta.eta_column[idx];
+            y -= eta.eta_column() * multiplier;
+            y[idx] = multiplier * eta.eta_column()[idx];
         }
-        Some(y)
+        y
     }
 
     /// Finds the index of the variable that will enter the basis or None if no variable can enter.
@@ -464,7 +405,7 @@ where
     /// The index of the variable that will enter the basis
     /// or None if no variable can enter.
     fn entering_index(&self) -> Option<usize> {
-        let y = self.btran(&self.get_cb().as_view())?;
+        let y = self.btran(&self.get_cb().as_view());
         let matrix_y_product = &self.constraint_matrix * y;
         let reduced_costs = &self.objective_coefficients - matrix_y_product;
         let entering_index = reduced_costs
@@ -486,7 +427,7 @@ where
     /// or None if no variable can leave.
     pub fn leaving_index(&self, entering: usize) -> Option<usize> {
         let a_entering = self.constraint_matrix.column(entering);
-        let direction_vector = self.ftran(&a_entering)?;
+        let direction_vector = self.ftran(&a_entering);
 
         // Calculate the minimum ratio.
         let mut min_ratio = None;
@@ -585,16 +526,16 @@ where
     ///
     /// # Returns
     /// The reduced costs for non-basic variables.
-    fn get_reduced_costs(&self) -> Option<DVector<T>> {
-        let y = self.btran(&self.get_cb().as_view())?;
-        Some(&self.objective_coefficients - &self.constraint_matrix * y)
+    fn get_reduced_costs(&self) -> DVector<T> {
+        let y = self.btran(&self.get_cb().as_view());
+        &self.objective_coefficients - &self.constraint_matrix * y
     }
 
     /// Gets the direction vector.
     ///
     /// # Returns
     /// The direction vector.
-    fn get_direction_vector(&self) -> Option<DVector<T>> {
+    fn get_direction_vector(&self) -> DVector<T> {
         self.ftran(&self.get_cn().as_view())
     }
 }
