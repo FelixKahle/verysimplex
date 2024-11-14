@@ -20,7 +20,7 @@
 
 #![allow(dead_code)]
 
-use nalgebra::DVector;
+use nalgebra::{max, DVector};
 use std::fmt::Write;
 
 /// Elementary transformation matrix.
@@ -106,7 +106,7 @@ impl<T> Eq for EtaMatrix<T> where T: Eq {}
 /// A heuristic for the capacity of a string representation of a vector.
 #[inline(always)]
 fn string_capacity_heuristic(vec_len: usize, estimated_element_capacity: usize) -> usize {
-    vec_len * estimated_element_capacity + (vec_len - 1) * 2 + 2
+    vec_len.saturating_sub(1) * 2 + vec_len * estimated_element_capacity + 2
 }
 
 /// Converts a vector to a string.
