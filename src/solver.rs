@@ -22,8 +22,7 @@
 
 use crate::etam::EtaMatrix;
 use nalgebra::{
-    ClosedDivAssign, ClosedSubAssign, ComplexField, DMatrix, DVector, DVectorView, Dyn, Matrix,
-    VecStorage,
+    ClosedDivAssign, ClosedSubAssign, DMatrix, DVector, DVectorView, Dyn, Matrix, VecStorage,
 };
 use nalgebra_lapack::LUScalar;
 use num_traits::{One, Signed, Zero};
@@ -87,30 +86,22 @@ where
     eta_matrices: Vec<EtaMatrix<T>>,
 }
 
-/// Alias for the numeric traits required by the Solver.
-pub trait SolverNumeric:
-    LUScalar
-    + Zero
-    + One
-    + std::iter::Sum
-    + std::fmt::Display
-    + std::ops::Sub
-    + std::ops::MulAssign
-    + std::ops::AddAssign
-    + std::ops::SubAssign
-    + std::ops::Neg<Output = Self>
-    + PartialOrd
-    + ClosedSubAssign
-    + ClosedDivAssign
-    + ComplexField<RealField = Self>
-    + std::panic::UnwindSafe
-    + Signed
-{
-}
-
 impl<T> Solver<T>
 where
-    T: SolverNumeric,
+    T: LUScalar
+        + Zero
+        + One
+        + std::iter::Sum
+        + std::fmt::Display
+        + std::ops::Sub
+        + std::ops::MulAssign
+        + std::ops::AddAssign
+        + std::ops::SubAssign
+        + std::ops::Neg<Output = T>
+        + PartialOrd
+        + ClosedSubAssign
+        + ClosedDivAssign
+        + Signed,
 {
     /// Constructs a new `Solver`.
     ///
@@ -447,10 +438,11 @@ where
                     None
                 }
             })
-            .min_by(|(_, ratio1), (_, ratio2)| {
+            .min_by(|(i1, ratio1), (i2, ratio2)| {
                 ratio1
                     .partial_cmp(ratio2)
                     .unwrap_or(std::cmp::Ordering::Equal)
+                    .then(i1.cmp(i2))
             })
             .map(|(i, _)| i)
     }
@@ -482,24 +474,19 @@ where
 
     /// Checks if the solution has achieved optimality.
     ///
-    /// # Arguments
-    /// - `reduced_costs` - The reduced costs of the variables
-    ///
     /// # Returns
     /// `true` if the solution is optimal, `false` otherwise.
-    fn is_optimal(reduced_costs: &DVector<T>, epsilon: T) -> bool {
-        // Ensure epsilon is negative
-        let epsilon = -epsilon.abs();
-
-        reduced_costs.iter().all(|&cost| cost >= -epsilon)
+    fn is_optimal(&self) -> bool {
+        self.rhs.iter().all(|&cost| self.tolerance_negative(cost))
     }
 
-    /// Checks if the solution is unbounded.
+    /// Checks if the solution is feasible.
     ///
-    /// # Arguments
-    /// - `direction_vector` - The direction vector
-    fn is_unbounded(direction_vector: &DVector<T>) -> bool {
-        direction_vector.iter().all(|&entry| entry <= T::zero())
+    /// # Returns
+    /// `true` if the solution is feasible, `false` otherwise.
+    fn is_feasible(&self) -> bool {
+        // Ensure all RHS values are non-negative
+        self.rhs.iter().all(|&b| self.tolerance_positive(b))
     }
 
     /// Gets reduced costs for non-basic variables.
