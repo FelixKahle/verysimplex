@@ -20,135 +20,32 @@
 
 #![allow(dead_code)]
 
-use crate::{
-    etam::EtaMatrix,
-    var::{Variable, VariableValue},
+use crate::etam::EtaMatrix;
+use nalgebra::{
+    ClosedDivAssign, ClosedSubAssign, ComplexField, DMatrix, DVector, DVectorView, Dyn, Matrix,
+    VecStorage,
 };
-use nalgebra::{DMatrix, DVector, DVectorView, Dyn, Matrix, VecStorage};
-use nalgebra_lapack::{LUScalar, LU};
+use nalgebra_lapack::LUScalar;
 use num_traits::{One, Signed, Zero};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
-/// A solution to a linear program.
-///
-/// # Type parameters
-/// - `T`: The number type.
-#[derive(Debug, Clone)]
-pub struct Solution<T>
-where
-    T: LUScalar,
-{
-    /// The objective value.
-    objective_value: T,
+/// Represents a solver variable, which can be either:
+/// - `Fixed`: A variable with a fixed value or constrained directly by the solver.
+/// - `Free`: A variable without such direct constraints, allowed to vary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum SolverVariable {
+    /// A fixed variable.
+    Fixed(usize),
 
-    /// The variable values.
-    variable_values: HashSet<VariableValue<T>>,
+    /// A free variable.
+    Free(usize),
 }
 
-impl<T> Solution<T>
-where
-    T: LUScalar,
-{
-    /// Constructs a new `Solution`.
-    ///
-    /// # Parameters
-    /// - `objective_value`: The objective value.
-    /// - `variable_values`: The variable values.
-    ///
-    /// # Returns
-    /// A new instance of `Solution`.
-    pub fn new(objective_value: T, variable_values: HashSet<VariableValue<T>>) -> Self {
-        Self {
-            objective_value,
-            variable_values,
-        }
-    }
-
-    /// Gets the objective value.
-    ///
-    /// # Returns
-    /// The objective value.
-    pub fn objective_value(&self) -> T {
-        self.objective_value
-    }
-
-    /// Gets the variable values.
-    ///
-    /// # Returns
-    /// The variable values.
-    pub fn variable_values(&self) -> &HashSet<VariableValue<T>> {
-        &self.variable_values
-    }
-}
-
-impl<'a, T> IntoIterator for &'a Solution<T>
-where
-    T: LUScalar,
-{
-    type Item = &'a VariableValue<T>;
-    type IntoIter = std::collections::hash_set::Iter<'a, VariableValue<T>>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.variable_values.iter()
-    }
-}
-
-impl<T> std::fmt::Display for Solution<T>
-where
-    T: LUScalar + std::fmt::Display,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "Objective value: {}", self.objective_value)?;
-
-        for variable_value in &self.variable_values {
-            writeln!(f, "{}", variable_value)?;
-        }
-
-        Ok(())
-    }
-}
-
-/// The solution status of a solver.
-///
-/// # Type parameters
-/// - `T`: The number type.
-#[derive(Debug, Clone)]
-pub enum SolutionStatus<T>
-where
-    T: LUScalar,
-{
-    /// The solution is optimal.
-    Optimal(Solution<T>),
-
-    /// The solution is feasible.
-    Feasible(Solution<T>),
-
-    /// The solution is degenerate.
-    Degenerate(Solution<T>),
-
-    /// The solution is unbounded.
-    Unbounded,
-}
-
-impl<T> std::fmt::Display for SolutionStatus<T>
-where
-    T: LUScalar + std::fmt::Display,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl std::fmt::Display for SolverVariable {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            SolutionStatus::Optimal(solution) => {
-                writeln!(f, "Optimal solution")?;
-                write!(f, "{}", solution)
-            }
-            SolutionStatus::Feasible(solution) => {
-                writeln!(f, "Feasible solution")?;
-                write!(f, "{}", solution)
-            }
-            SolutionStatus::Degenerate(solution) => {
-                writeln!(f, "Degenerate solution")?;
-                write!(f, "{}", solution)
-            }
-            SolutionStatus::Unbounded => write!(f, "Unbounded solution"),
+            SolverVariable::Fixed(i) => write!(f, "{}", i),
+            SolverVariable::Free(i) => write!(f, "{}", i),
         }
     }
 }
@@ -184,27 +81,36 @@ where
     objective_value: T,
 
     /// Maps indices to original variables
-    index_to_variable: HashMap<usize, Variable>,
+    index_to_variable: HashMap<usize, SolverVariable>,
 
     /// List of Eta matrices for updating B inverse
     eta_matrices: Vec<EtaMatrix<T>>,
 }
 
+/// Alias for the numeric traits required by the Solver.
+pub trait SolverNumeric:
+    LUScalar
+    + Zero
+    + One
+    + std::iter::Sum
+    + std::fmt::Display
+    + std::ops::Sub
+    + std::ops::MulAssign
+    + std::ops::AddAssign
+    + std::ops::SubAssign
+    + std::ops::Neg<Output = Self>
+    + PartialOrd
+    + ClosedSubAssign
+    + ClosedDivAssign
+    + ComplexField<RealField = Self>
+    + std::panic::UnwindSafe
+    + Signed
+{
+}
+
 impl<T> Solver<T>
 where
-    T: LUScalar
-        + Zero
-        + One
-        + std::iter::Sum
-        + std::fmt::Display
-        + std::ops::Sub
-        + std::ops::MulAssign
-        + std::ops::AddAssign
-        + std::ops::SubAssign
-        + std::ops::Neg<Output = T>
-        + PartialOrd
-        + nalgebra::ClosedSubAssign
-        + Signed,
+    T: SolverNumeric,
 {
     /// Constructs a new `Solver`.
     ///
@@ -227,7 +133,7 @@ where
         objective_coefficients: DVector<T>,
         basic_indices: Vec<usize>,
         non_basic_indices: Vec<usize>,
-        index_to_variable: HashMap<usize, Variable>,
+        index_to_variable: HashMap<usize, SolverVariable>,
         epsilon: T,
     ) -> Self {
         Self {
@@ -241,6 +147,120 @@ where
             index_to_variable,
             eta_matrices: Vec::new(),
         }
+    }
+
+    /// Compares two values `T` with a tolerance of epsilon.
+    ///
+    /// # Parameters
+    /// - `a`: The first value.
+    /// - `b`: The second value.
+    ///
+    /// # Returns
+    /// `true` if the values are equal within the tolerance, `false` otherwise.
+    #[inline(always)]
+    fn tolerance_eq(&self, a: T, b: T) -> bool {
+        (a - b).abs() < self.epsilon
+    }
+
+    /// Compares a value `T` with a tolerance of epsilon to zero.
+    ///
+    /// # Parameters
+    /// - `a`: The value.
+    ///
+    /// # Returns
+    /// `true` if the value is zero within the tolerance, `false` otherwise.
+    #[inline(always)]
+    fn tolerance_zero(&self, a: T) -> bool {
+        a.abs() < self.epsilon
+    }
+
+    /// Compares a value `T` with a tolerance of epsilon to zero.
+    ///
+    /// # Parameters
+    /// - `a`: The value.
+    ///
+    /// # Returns
+    /// `true` if the value is positive within the tolerance, `false` otherwise.
+    #[inline(always)]
+    fn tolerance_positive(&self, a: T) -> bool {
+        a > self.epsilon
+    }
+
+    /// Compares a value `T` with a tolerance of epsilon to zero.
+    ///
+    /// # Parameters
+    /// - `a`: The value.
+    ///
+    /// # Returns
+    /// `true` if the value is negative within the tolerance, `false` otherwise.
+    #[inline(always)]
+    fn tolerance_negative(&self, a: T) -> bool {
+        a < -self.epsilon
+    }
+
+    /// Compares two values `T` with a tolerance of epsilon.
+    ///
+    /// # Parameters
+    /// - `a`: The first value.
+    /// - `b`: The second value.
+    ///
+    /// # Returns
+    /// `true` if the values are not equal within the tolerance, `false` otherwise.
+    #[inline(always)]
+    fn tolerance_neq(&self, a: T, b: T) -> bool {
+        (a - b).abs() >= self.epsilon
+    }
+
+    /// Compares two values `T` with a tolerance of epsilon.
+    ///
+    /// # Parameters
+    /// - `a`: The first value.
+    /// - `b`: The second value.
+    ///
+    /// # Returns
+    /// `true` if `a` is greater than `b` within the tolerance, `false` otherwise.
+    #[inline(always)]
+    fn tolerance_gt(&self, a: T, b: T) -> bool {
+        a > b + self.epsilon
+    }
+
+    /// Compares two values `T` with a tolerance of epsilon.
+    ///
+    /// # Parameters
+    /// - `a`: The first value.
+    /// - `b`: The second value.
+    ///
+    /// # Returns
+    /// `true` if `a` is less than `b` within the tolerance, `false` otherwise.
+    #[inline(always)]
+    fn tolerance_lt(&self, a: T, b: T) -> bool {
+        a < b - self.epsilon
+    }
+
+    /// Compares two values `T` with a tolerance of epsilon.
+    ///
+    /// # Parameters
+    /// - `a`: The first value.
+    /// - `b`: The second value.
+    ///
+    /// # Returns
+    /// `true` if `a` is greater than or equal to `b` within the tolerance, `false` otherwise.
+    #[inline(always)]
+    fn tolerance_ge(&self, a: T, b: T) -> bool {
+        a >= b - self.epsilon
+    }
+
+    /// Compares two values `T` with a tolerance of epsilon.
+    ///
+    /// # Parameters
+    /// - `a`: The first value.
+    /// - `b`: The second value.
+    ///
+    /// # Returns
+    /// `true` if `a` is less than or equal to `b` within the tolerance, `false` otherwise.
+    #[inline(always)]
+    fn tolerance_le(&self, a: T, b: T) -> bool {
+        a <= b + self.epsilon
     }
 
     /// Gets the constraint matrix.
@@ -311,7 +331,7 @@ where
     ///
     /// # Returns
     /// A mapping from indices to original variables.
-    pub fn index_to_variable(&self) -> &HashMap<usize, Variable> {
+    pub fn index_to_variable(&self) -> &HashMap<usize, SolverVariable> {
         &self.index_to_variable
     }
 
@@ -396,56 +416,43 @@ where
         y
     }
 
-    /// Finds the index of the variable that will enter the basis or None if no variable can enter.
-    /// If this method returns None, the current solution is optimal.
+    /// Selects the entering variable using Bland's Rule.
     ///
     /// # Returns
-    /// The index of the variable that will enter the basis
-    /// or None if no variable can enter.
-    fn entering_index(&self) -> Option<usize> {
-        let y = self.btran(&self.get_cb().as_view());
-        let matrix_y_product = &self.constraint_matrix * y;
-        let reduced_costs = &self.objective_coefficients - matrix_y_product;
-        let entering_index = reduced_costs
+    /// The index of the entering variable or `None` if the solution is optimal.
+    fn select_entering_variable(&self) -> Option<usize> {
+        self.non_basic_indices
             .iter()
-            .enumerate()
-            .filter(|&(_, &rc)| rc > T::zero() + self.epsilon)
-            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
-            .map(|(index, _)| index);
-        entering_index
+            .filter(|&&j| self.tolerance_negative(self.objective_coefficients[j]))
+            .min()
+            .copied()
     }
 
-    /// Finds the index of the variable that will leave the basis or None if no variable can leave.
+    /// Selects the exiting variable using Bland's Rule.
     ///
     /// # Arguments
-    /// - `entering` - The index of the variable that will enter the basis
+    /// - `direction_vector`: The direction vector for the entering variable.
     ///
     /// # Returns
-    /// The index of the variable that will leave the basis
-    /// or None if no variable can leave.
-    pub fn leaving_index(&self, entering: usize) -> Option<usize> {
-        let a_entering = self.constraint_matrix.column(entering);
-        let direction_vector = self.ftran(&a_entering);
-
-        // Calculate the minimum ratio.
-        let mut min_ratio = None;
-        let mut leaving_index = None;
-
-        for (i, &direction) in direction_vector.iter().enumerate() {
-            // Only consider positive entries in the direction vector
-            if direction > T::zero() {
-                // Safe to divide here because direction is positive
-                // and thus cannot be zero.
-                let ratio = self.rhs[i] / direction;
-
-                if min_ratio.is_none() || ratio < min_ratio.unwrap() {
-                    min_ratio = Some(ratio);
-                    leaving_index = Some(i);
+    /// The index of the exiting variable.
+    fn select_exiting_variable(&self, direction_vector: &DVector<T>) -> Option<usize> {
+        self.basic_indices
+            .iter()
+            .enumerate()
+            .filter_map(|(i, _)| {
+                let d_i = direction_vector[i];
+                if self.tolerance_positive(d_i) {
+                    Some((i, self.rhs[i] / d_i))
+                } else {
+                    None
                 }
-            }
-        }
-
-        leaving_index
+            })
+            .min_by(|(_, ratio1), (_, ratio2)| {
+                ratio1
+                    .partial_cmp(ratio2)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|(i, _)| i)
     }
 
     /// Update Eta matrix after each pivot to track the changes to the inverse.
@@ -453,7 +460,6 @@ where
     /// # Arguments
     /// - `exiting_index` - The index of the variable that is exiting the basis
     fn update_eta_matrix(&mut self, exiting_index: usize) {
-        // Retrieve the updated pivot column from the constraint matrix
         let pivot_column_index = self.basic_indices[exiting_index];
         let eta_column = self
             .constraint_matrix
@@ -462,30 +468,6 @@ where
 
         let eta = EtaMatrix::new(exiting_index, eta_column);
         self.eta_matrices.push(eta);
-    }
-
-    /// Refactorizes the basis matrix by performing an LU decomposition
-    /// and repopulating `eta_matrices` from the L and U factors.
-    fn refactorize_basis(&mut self) {
-        self.eta_matrices.clear();
-        let lu_decomp = LU::new(self.get_basis_matrix());
-
-        let l_matrix = lu_decomp.l();
-        let u_matrix = lu_decomp.u();
-
-        for (i, column) in l_matrix.column_iter().enumerate() {
-            if l_matrix[(i, i)] != T::one() {
-                let eta_column = column.clone_owned();
-                let eta = EtaMatrix::new(i, eta_column);
-                self.eta_matrices.push(eta);
-            }
-        }
-
-        for (i, column) in u_matrix.column_iter().enumerate() {
-            let eta_column = column.clone_owned();
-            let eta = EtaMatrix::new(i, eta_column);
-            self.eta_matrices.push(eta);
-        }
     }
 
     // Utility method to swap a variable between basic and non-basic.
@@ -526,14 +508,15 @@ where
     /// The reduced costs for non-basic variables.
     fn get_reduced_costs(&self) -> DVector<T> {
         let y = self.btran(&self.get_cb().as_view());
-        &self.objective_coefficients - &self.constraint_matrix * y
+        &self.objective_coefficients - &self.constraint_matrix.transpose() * y
     }
 
     /// Gets the direction vector.
     ///
     /// # Returns
     /// The direction vector.
-    fn get_direction_vector(&self) -> DVector<T> {
-        self.ftran(&self.get_cn().as_view())
+    fn get_direction_vector(&self, entering_index: usize) -> DVector<T> {
+        let a_entering = self.constraint_matrix.column(entering_index);
+        self.ftran(&a_entering)
     }
 }
