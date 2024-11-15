@@ -276,7 +276,7 @@ where
         for eta in &self.eta_matrices {
             let col_idx = eta.column_index();
             let pivot_val = d[col_idx];
-            d += eta.eta_column() * pivot_val;
+            d -= eta.eta_column() * pivot_val;
         }
         d
     }
@@ -293,8 +293,8 @@ where
 
         for eta in self.eta_matrices.iter().rev() {
             let col_idx = eta.column_index();
-            let pivot_val = y[col_idx];
-            y += eta.eta_column() * pivot_val;
+            let s = eta.eta_column().dot(&y);
+            y[col_idx] -= s;
         }
         y
     }
