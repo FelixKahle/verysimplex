@@ -20,16 +20,14 @@
 
 #![allow(dead_code)]
 
-use std::collections::{HashMap, HashSet};
-
+use crate::{
+    etam::EtaMatrix,
+    var::{Variable, VariableValue},
+};
 use nalgebra::{DMatrix, DVector, DVectorView, Dyn, Matrix, VecStorage};
 use nalgebra_lapack::{LUScalar, LU};
 use num_traits::{One, Signed, Zero};
-
-use crate::{
-    etam::EtaMatrix,
-    problem::{Variable, VariableValue},
-};
+use std::collections::{HashMap, HashSet};
 
 /// A solution to a linear program.
 ///

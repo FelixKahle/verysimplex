@@ -20,13 +20,14 @@
 
 mod etam;
 mod problem;
+mod solution;
 mod solver;
+mod var;
 
 use std::rc::Rc;
 
-use problem::{
-    Constraint, LinearProgram, LinearProgramBuilderError, Objective, Variable, VariableValue,
-};
+use problem::{Constraint, LinearProgram, LinearProgramBuilderError, Objective};
+use var::{Variable, VariableValue};
 
 fn main() {
     // Define variable names
@@ -40,13 +41,12 @@ fn main() {
     // Using the builder to construct the linear program
     let linear_program: Result<LinearProgram<f64>, LinearProgramBuilderError> =
         LinearProgram::builder()
-            .set_objective(Objective::Maximize(
+            .set_objective(Objective::Maximize(<problem::LinearExpression<f64>>::from(
                 vec![
                     VariableValue::new(x.clone(), 3.0).into(),
                     VariableValue::new(y.clone(), 5.0).into(),
-                ]
-                .into(),
-            ))
+                ],
+            )))
             .with_constraint(Constraint::GreaterOrEqual(
                 vec![
                     VariableValue::new(x.clone(), 6.0).into(),

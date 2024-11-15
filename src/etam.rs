@@ -20,7 +20,7 @@
 
 #![allow(dead_code)]
 
-use nalgebra::{max, DVector};
+use nalgebra::DVector;
 use std::fmt::Write;
 
 /// Elementary transformation matrix.
@@ -109,6 +109,9 @@ fn string_capacity_heuristic(vec_len: usize, estimated_element_capacity: usize) 
     vec_len.saturating_sub(1) * 2 + vec_len * estimated_element_capacity + 2
 }
 
+/// The default capacity estimate for a string representation of a vector for a single element.
+const DEFAULT_STRING_CAPACITY_ESTIMATE: usize = 4;
+
 /// Converts a vector to a string.
 ///
 /// The string will have the following format: `[a, b, c, ...]`.
@@ -119,25 +122,28 @@ fn string_capacity_heuristic(vec_len: usize, estimated_element_capacity: usize) 
 /// # Returns
 /// The string representation of the vector.
 #[inline(always)]
-fn vector_to_string<T>(vector: &DVector<T>) -> String
+fn vector_to_string<T>(vector: &DVector<T>) -> Result<String, std::fmt::Error>
 where
     T: std::fmt::Display,
 {
     // Preallocates a string with a heuristic capacity.
     // We use a heuristic to avoid to many reallocations.
-    let mut string = String::with_capacity(string_capacity_heuristic(vector.len(), 4));
+    let mut string = String::with_capacity(string_capacity_heuristic(
+        vector.len(),
+        DEFAULT_STRING_CAPACITY_ESTIMATE,
+    ));
 
     string.push('[');
     for (i, element) in vector.iter().enumerate() {
         // It is safe to call `unwrap` here, as writing to a `String` will hardly ever fail.
         // And if it does, panicking is the correct behavior as something really bad must have happened.
-        write!(&mut string, "{}", element).unwrap();
+        write!(&mut string, "{}", element)?;
         if i < vector.len() - 1 {
             string.push_str(", ");
         }
     }
     string.push(']');
-    string
+    Ok(string)
 }
 
 impl<T> std::fmt::Display for EtaMatrix<T>
@@ -145,7 +151,7 @@ where
     T: std::fmt::Display,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let eta_column = vector_to_string(&self.eta_column);
+        let eta_column = vector_to_string(&self.eta_column)?;
         write!(f, "[{}|{}]", self.column_index, eta_column)
     }
 }
