@@ -140,118 +140,12 @@ where
         }
     }
 
-    /// Compares two values `T` with a tolerance of epsilon.
-    ///
-    /// # Parameters
-    /// - `a`: The first value.
-    /// - `b`: The second value.
+    /// Gets the objective value.
     ///
     /// # Returns
-    /// `true` if the values are equal within the tolerance, `false` otherwise.
-    #[inline(always)]
-    fn tolerance_eq(&self, a: T, b: T) -> bool {
-        (a - b).abs() < self.epsilon
-    }
-
-    /// Compares a value `T` with a tolerance of epsilon to zero.
-    ///
-    /// # Parameters
-    /// - `a`: The value.
-    ///
-    /// # Returns
-    /// `true` if the value is zero within the tolerance, `false` otherwise.
-    #[inline(always)]
-    fn tolerance_zero(&self, a: T) -> bool {
-        a.abs() < self.epsilon
-    }
-
-    /// Compares a value `T` with a tolerance of epsilon to zero.
-    ///
-    /// # Parameters
-    /// - `a`: The value.
-    ///
-    /// # Returns
-    /// `true` if the value is positive within the tolerance, `false` otherwise.
-    #[inline(always)]
-    fn tolerance_positive(&self, a: T) -> bool {
-        a > self.epsilon
-    }
-
-    /// Compares a value `T` with a tolerance of epsilon to zero.
-    ///
-    /// # Parameters
-    /// - `a`: The value.
-    ///
-    /// # Returns
-    /// `true` if the value is negative within the tolerance, `false` otherwise.
-    #[inline(always)]
-    fn tolerance_negative(&self, a: T) -> bool {
-        a < -self.epsilon
-    }
-
-    /// Compares two values `T` with a tolerance of epsilon.
-    ///
-    /// # Parameters
-    /// - `a`: The first value.
-    /// - `b`: The second value.
-    ///
-    /// # Returns
-    /// `true` if the values are not equal within the tolerance, `false` otherwise.
-    #[inline(always)]
-    fn tolerance_neq(&self, a: T, b: T) -> bool {
-        (a - b).abs() >= self.epsilon
-    }
-
-    /// Compares two values `T` with a tolerance of epsilon.
-    ///
-    /// # Parameters
-    /// - `a`: The first value.
-    /// - `b`: The second value.
-    ///
-    /// # Returns
-    /// `true` if `a` is greater than `b` within the tolerance, `false` otherwise.
-    #[inline(always)]
-    fn tolerance_gt(&self, a: T, b: T) -> bool {
-        a > b + self.epsilon
-    }
-
-    /// Compares two values `T` with a tolerance of epsilon.
-    ///
-    /// # Parameters
-    /// - `a`: The first value.
-    /// - `b`: The second value.
-    ///
-    /// # Returns
-    /// `true` if `a` is less than `b` within the tolerance, `false` otherwise.
-    #[inline(always)]
-    fn tolerance_lt(&self, a: T, b: T) -> bool {
-        a < b - self.epsilon
-    }
-
-    /// Compares two values `T` with a tolerance of epsilon.
-    ///
-    /// # Parameters
-    /// - `a`: The first value.
-    /// - `b`: The second value.
-    ///
-    /// # Returns
-    /// `true` if `a` is greater than or equal to `b` within the tolerance, `false` otherwise.
-    #[inline(always)]
-    fn tolerance_ge(&self, a: T, b: T) -> bool {
-        a >= b - self.epsilon
-    }
-
-    /// Compares two values `T` with a tolerance of epsilon.
-    ///
-    /// # Parameters
-    /// - `a`: The first value.
-    /// - `b`: The second value.
-    ///
-    /// # Returns
-    /// `true` if `a` is less than or equal to `b` within the tolerance, `false` otherwise.
-    #[inline(always)]
-    fn tolerance_le(&self, a: T, b: T) -> bool {
-        a <= b + self.epsilon
+    /// The objective value.
+    pub fn objective_value(&self) -> T {
+        self.objective_value
     }
 
     /// Gets the constraint matrix.
@@ -380,10 +274,9 @@ where
         let mut d = a_entering.clone_owned();
 
         for eta in &self.eta_matrices {
-            let idx = eta.column_index();
-            let multiplier = d[idx];
-            d -= eta.eta_column() * multiplier;
-            d[idx] = multiplier * eta.eta_column()[idx];
+            let col_idx = eta.column_index();
+            let pivot_val = d[col_idx];
+            d += eta.eta_column() * pivot_val;
         }
         d
     }
@@ -399,66 +292,28 @@ where
         let mut y = c_b.clone_owned();
 
         for eta in self.eta_matrices.iter().rev() {
-            let idx = eta.column_index();
-            let multiplier = y[idx];
-            y -= eta.eta_column() * multiplier;
-            y[idx] = multiplier * eta.eta_column()[idx];
+            let col_idx = eta.column_index();
+            let pivot_val = y[col_idx];
+            y += eta.eta_column() * pivot_val;
         }
         y
-    }
-
-    /// Selects the entering variable using Bland's Rule.
-    ///
-    /// # Returns
-    /// The index of the entering variable or `None` if the solution is optimal.
-    fn select_entering_variable(&self) -> Option<usize> {
-        self.non_basic_indices
-            .iter()
-            .filter(|&&j| self.tolerance_negative(self.objective_coefficients[j]))
-            .min()
-            .copied()
-    }
-
-    /// Selects the exiting variable using Bland's Rule.
-    ///
-    /// # Arguments
-    /// - `direction_vector`: The direction vector for the entering variable.
-    ///
-    /// # Returns
-    /// The index of the exiting variable.
-    fn select_exiting_variable(&self, direction_vector: &DVector<T>) -> Option<usize> {
-        self.basic_indices
-            .iter()
-            .enumerate()
-            .filter_map(|(i, _)| {
-                let d_i = direction_vector[i];
-                if self.tolerance_positive(d_i) {
-                    Some((i, self.rhs[i] / d_i))
-                } else {
-                    None
-                }
-            })
-            .min_by(|(i1, ratio1), (i2, ratio2)| {
-                ratio1
-                    .partial_cmp(ratio2)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-                    .then(i1.cmp(i2))
-            })
-            .map(|(i, _)| i)
     }
 
     /// Update Eta matrix after each pivot to track the changes to the inverse.
     ///
     /// # Arguments
-    /// - `exiting_index` - The index of the variable that is exiting the basis
-    fn update_eta_matrix(&mut self, exiting_index: usize) {
-        let pivot_column_index = self.basic_indices[exiting_index];
-        let eta_column = self
-            .constraint_matrix
-            .column(pivot_column_index)
-            .into_owned();
+    /// - `pivot_row` - The row index where the pivot occurs in the basis matrix (position of the leaving variable)
+    /// - `d` - The direction vector computed from `ftran`, which represents the new column entering the basis
+    fn update_eta_matrix(&mut self, pivot_row: usize, d: &DVector<T>) {
+        // Construct the new Eta column as u = d - e_{pivot_row}
+        let mut eta_column = d.clone();
+        eta_column[pivot_row] -= T::one(); // Subtract 1 from the pivot row
 
-        let eta = EtaMatrix::new(exiting_index, eta_column);
+        // The column index in the basis matrix where the replacement occurs is pivot_row
+        // Create the new Eta matrix with the computed column
+        let eta = EtaMatrix::new(pivot_row, eta_column);
+
+        // Append the new Eta matrix to the list
         self.eta_matrices.push(eta);
     }
 
@@ -468,25 +323,10 @@ where
     // - `entering_index` - The index of the variable that is entering the basis
     // - `exiting_index` - The index of the variable that is exiting the basis
     fn swap_basis_indices(&mut self, entering_index: usize, exiting_index: usize) {
+        let old_basic_index = self.basic_indices[exiting_index];
         self.basic_indices[exiting_index] = entering_index;
         self.non_basic_indices.retain(|&x| x != entering_index);
-    }
-
-    /// Checks if the solution has achieved optimality.
-    ///
-    /// # Returns
-    /// `true` if the solution is optimal, `false` otherwise.
-    fn is_optimal(&self) -> bool {
-        self.rhs.iter().all(|&cost| self.tolerance_negative(cost))
-    }
-
-    /// Checks if the solution is feasible.
-    ///
-    /// # Returns
-    /// `true` if the solution is feasible, `false` otherwise.
-    fn is_feasible(&self) -> bool {
-        // Ensure all RHS values are non-negative
-        self.rhs.iter().all(|&b| self.tolerance_positive(b))
+        self.non_basic_indices.push(old_basic_index);
     }
 
     /// Gets reduced costs for non-basic variables.
@@ -495,7 +335,11 @@ where
     /// The reduced costs for non-basic variables.
     fn get_reduced_costs(&self) -> DVector<T> {
         let y = self.btran(&self.get_cb().as_view());
-        &self.objective_coefficients - &self.constraint_matrix.transpose() * y
+        let non_basic_a = self.get_non_basis_matrix(); // columns of A for non-basic variables
+        let c_n = self.get_cn();
+        // For a minimization problem:
+        // reduced_costs = c_N - (N^T * y)
+        &c_n - &(non_basic_a.transpose() * y)
     }
 
     /// Gets the direction vector.
