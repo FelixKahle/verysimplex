@@ -20,7 +20,8 @@
 
 #![allow(dead_code)]
 
-use nalgebra::{DVector, Scalar};
+use sprs::CsVec;
+use std::fmt::Write;
 
 /// An eta matrix E corresponds to the identity matrix except for one column e of
 /// index j. In particular, B.E is the matrix of the new basis obtained from B by
@@ -61,7 +62,7 @@ pub struct EtaMatrix<T> {
     column_index: usize,
 
     /// The column of the eta matrix
-    column: DVector<T>,
+    column: CsVec<T>,
 }
 
 impl<T> EtaMatrix<T> {
@@ -73,7 +74,7 @@ impl<T> EtaMatrix<T> {
     ///
     /// # Returns
     /// A new eta matrix.
-    pub fn new(column_index: usize, column: DVector<T>) -> Self {
+    pub fn new(column_index: usize, column: CsVec<T>) -> Self {
         Self {
             column_index,
             column,
@@ -84,6 +85,7 @@ impl<T> EtaMatrix<T> {
     ///
     /// # Returns
     /// The index of the column of the eta matrix.
+    #[inline]
     pub fn column_index(&self) -> usize {
         self.column_index
     }
@@ -92,31 +94,101 @@ impl<T> EtaMatrix<T> {
     ///
     /// # Returns
     /// The column of the eta matrix.
-    pub fn column(&self) -> &DVector<T> {
+    #[inline]
+    pub fn column(&self) -> &CsVec<T> {
         &self.column
     }
+
+    /// Perform the left solve operation with the eta matrix on a mutable vector `y`.
+    ///
+    /// This function modifies `y` in place.
+    ///
+    /// # Parameters
+    /// - `y`: The mutable vector to be transformed.
+    pub fn left_solve_mut(&self, y: &mut CsVec<T>)
+    where
+        T: Copy + std::ops::Mul<Output = T> + std::ops::Div<Output = T> + std::ops::SubAssign,
+    {
+        let mut y_value = y[self.column_index];
+        for (row, &eta_coeff) in self.column.iter() {
+            y_value -= y[row] * eta_coeff;
+        }
+        y[self.column_index] = y_value / self.column[self.column_index];
+    }
+
+    /// Perform the left solve operation with the eta matrix on a vector `y`.
+    ///
+    /// # Parameters
+    /// - `y`: The vector to be transformed.
+    ///
+    /// # Returns
+    /// The transformed sparse vector.
+    #[inline]
+    pub fn left_solve(&self, y: &CsVec<T>) -> CsVec<T>
+    where
+        T: Copy + std::ops::Mul<Output = T> + std::ops::Div<Output = T> + std::ops::SubAssign,
+    {
+        let mut y = y.clone();
+        self.left_solve_mut(&mut y);
+        y
+    }
+
+    /// Return the size of the eta matrix.
+    ///
+    /// This represents the number of rows or columns since the eta matrix is square.
+    ///
+    /// # Returns
+    /// The size of the eta matrix.
+    #[inline]
+    pub fn size(&self) -> usize {
+        self.column.dim()
+    }
+}
+
+/// Converts a sparse vector to a string in the format `[a, b, c, ...]`.
+///
+/// # Parameters
+/// - `vec`: The sparse vector to convert to a string.
+///
+/// # Returns
+/// A string representation of the sparse vector.
+#[inline(always)]
+fn vec_to_string<T>(vec: &CsVec<T>) -> Result<String, std::fmt::Error>
+where
+    T: std::fmt::Display,
+{
+    let mut string = String::new();
+    string.push('[');
+    let mut iter = vec.iter().peekable();
+    while let Some((_, value)) = iter.next() {
+        write!(&mut string, "{}", value)?;
+        if iter.peek().is_some() {
+            string.push_str(", ");
+        }
+    }
+    string.push(']');
+
+    Ok(string)
 }
 
 impl<T> std::fmt::Display for EtaMatrix<T>
 where
-    T: Scalar + std::fmt::Debug + std::fmt::Display,
+    T: std::fmt::Debug + std::fmt::Display,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}|{}", self.column_index, self.column)
+        let column_string = vec_to_string(&self.column)?;
+        write!(f, "{}|{}", self.column_index, column_string)
     }
 }
 
-impl<T> Into<DVector<T>> for EtaMatrix<T>
-where
-    T: Scalar,
-{
-    fn into(self) -> DVector<T> {
+impl<T> Into<CsVec<T>> for EtaMatrix<T> {
+    fn into(self) -> CsVec<T> {
         self.column
     }
 }
 
-impl<T> From<(usize, DVector<T>)> for EtaMatrix<T> {
-    fn from((column_index, column): (usize, DVector<T>)) -> Self {
+impl<T> From<(usize, CsVec<T>)> for EtaMatrix<T> {
+    fn from((column_index, column): (usize, CsVec<T>)) -> Self {
         Self::new(column_index, column)
     }
 }
