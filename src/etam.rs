@@ -20,8 +20,10 @@
 
 #![allow(dead_code)]
 
-use sprs::CsVec;
-use std::fmt::Write;
+use std::ops::{DivAssign, SubAssign};
+
+use crate::idx::ValidIndex;
+use nalgebra::{iter::MatrixIter, Const, DVector, Dyn, Scalar, VecStorage};
 
 /// An eta matrix E corresponds to the identity matrix except for one column e of
 /// index j. In particular, B.E is the matrix of the new basis obtained from B by
@@ -58,62 +60,133 @@ use std::fmt::Write;
 /// ```
 #[derive(Debug, Clone)]
 pub struct EtaMatrix<T> {
-    /// The index of the column of the eta matrix
+    /// The index of the column that is not the identity column.
     column_index: usize,
 
-    /// The column of the eta matrix
-    column: CsVec<T>,
+    /// The column that is not the identity column.
+    eta_column: DVector<T>,
 }
 
 impl<T> EtaMatrix<T> {
     /// Construct a new eta matrix.
     ///
     /// # Parameters
-    /// - `column_index`: The index of the column of the eta matrix.
-    /// - `column`: The column of the eta matrix.
+    /// - `column_index`: The index of the column that is not the identity column.
+    /// - `eta_column`: The column that is not the identity column.
     ///
     /// # Returns
     /// A new eta matrix.
-    pub fn new(column_index: usize, column: CsVec<T>) -> Self {
+    pub fn new(column_index: usize, eta_column: DVector<T>) -> Self {
         Self {
             column_index,
-            column,
+            eta_column,
         }
     }
 
-    /// Get the index of the column of the eta matrix.
+    /// Get the index of the column that is not the identity column.
     ///
     /// # Returns
-    /// The index of the column of the eta matrix.
-    #[inline]
+    /// The index of the column that is not the identity column.
     pub fn column_index(&self) -> usize {
         self.column_index
     }
 
-    /// Get the column of the eta matrix.
+    /// Get the column that is not the identity column.
     ///
     /// # Returns
-    /// The column of the eta matrix.
-    #[inline]
-    pub fn column(&self) -> &CsVec<T> {
-        &self.column
+    /// The column that is not the identity column.
+    pub fn eta_column(&self) -> &DVector<T> {
+        &self.eta_column
     }
 
+    /// Get the size of the eta matrix.
+    ///
+    /// # Note
+    /// The eta matrix is a square matrix, so the size determines both the number of rows and columns.
+    ///
+    /// # Returns
+    /// The size of the eta matrix.
+    pub fn size(&self) -> usize {
+        self.eta_column.len()
+    }
+
+    /// Get the number of rows of the eta matrix.
+    ///
+    /// # Returns
+    /// The number of rows of the eta matrix.
+    pub fn nrows(&self) -> usize {
+        self.eta_column.len()
+    }
+
+    /// Get the number of columns of the eta matrix.
+    ///
+    /// # Returns
+    /// The number of columns of the eta matrix.
+    pub fn ncols(&self) -> usize {
+        self.eta_column.len()
+    }
+
+    /// Gets an iterator over the elements of the non-identity column of the eta matrix.
+    ///
+    /// # Returns
+    /// An iterator over the elements of the non-identity column of the eta matrix.
+    pub fn iter(&self) -> impl Iterator<Item = &T> {
+        self.eta_column.iter()
+    }
+}
+
+impl<T> EtaMatrix<T>
+where
+    T: Scalar,
+{
+    /// Get the element of the eta matrix in the non identity column and the given row.
+    ///
+    /// # Parameters
+    /// - `row`: The row of the element to get.
+    ///
+    /// # Returns
+    /// The element of the eta matrix in the non identity column and the given row.
+    pub fn get(&self, row: usize) -> Option<&T> {
+        self.eta_column.get(row)
+    }
+
+    /// Get the element of the eta matrix in the non identity column and the given row.
+    ///
+    /// # Parameters
+    /// - `row`: The row of the element to get.
+    ///
+    /// # Returns
+    /// The element of the eta matrix in the non identity column and the given row.
+    pub fn get_mut(&mut self, row: usize) -> Option<&mut T> {
+        self.eta_column.get_mut(row)
+    }
+}
+
+impl<T> EtaMatrix<T>
+where
+    T: Scalar
+        + Copy
+        + SubAssign
+        + DivAssign
+        + std::ops::Mul<Output = T>
+        + std::ops::Div<Output = T>,
+{
     /// Perform the left solve operation with the eta matrix on a mutable vector `y`.
     ///
     /// This function modifies `y` in place.
     ///
     /// # Parameters
     /// - `y`: The mutable vector to be transformed.
-    pub fn left_solve_mut(&self, y: &mut CsVec<T>)
-    where
-        T: Copy + std::ops::Mul<Output = T> + std::ops::Div<Output = T> + std::ops::SubAssign,
-    {
-        let mut y_value = y[self.column_index];
-        for (row, &eta_coeff) in self.column.iter() {
-            y_value -= y[row] * eta_coeff;
+    pub fn left_solve_mut(&self, y: &mut DVector<T>) {
+        let pivot_value = self.eta_column[self.column_index];
+        y[self.column_index] /= pivot_value;
+        let normalized_value = y[self.column_index];
+
+        for (row_index, &eta_coefficient) in self.eta_column.iter().enumerate() {
+            if row_index != self.column_index {
+                y[row_index] -= normalized_value * eta_coefficient;
+            }
         }
-        y[self.column_index] = y_value / self.column[self.column_index];
     }
 
     /// Perform the left solve operation with the eta matrix on a vector `y`.
@@ -124,71 +197,126 @@ impl<T> EtaMatrix<T> {
     /// # Returns
     /// The transformed sparse vector.
     #[inline]
-    pub fn left_solve(&self, y: &CsVec<T>) -> CsVec<T>
-    where
-        T: Copy + std::ops::Mul<Output = T> + std::ops::Div<Output = T> + std::ops::SubAssign,
-    {
+    pub fn left_sole(&self, y: &DVector<T>) -> DVector<T> {
         let mut y = y.clone();
         self.left_solve_mut(&mut y);
         y
     }
+}
 
-    /// Return the size of the eta matrix.
+impl<T> std::ops::Index<usize> for EtaMatrix<T> {
+    type Output = T;
+
+    /// Performs an indexing into the non identity column of the eta matrix.
     ///
-    /// This represents the number of rows or columns since the eta matrix is square.
+    /// # Parameters
+    /// - `index`: The index of the element to get.
     ///
     /// # Returns
-    /// The size of the eta matrix.
-    #[inline]
-    pub fn size(&self) -> usize {
-        self.column.dim()
+    /// The element of the eta matrix in the non identity column at the given index.
+    ///
+    /// # Panics
+    /// If the index is out of bounds.
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.eta_column[index]
     }
 }
 
-/// Converts a sparse vector to a string in the format `[a, b, c, ...]`.
-///
-/// # Parameters
-/// - `vec`: The sparse vector to convert to a string.
-///
-/// # Returns
-/// A string representation of the sparse vector.
-#[inline(always)]
-fn vec_to_string<T>(vec: &CsVec<T>) -> Result<String, std::fmt::Error>
-where
-    T: std::fmt::Display,
-{
-    let mut string = String::new();
-    string.push('[');
-    let mut iter = vec.iter().peekable();
-    while let Some((_, value)) = iter.next() {
-        write!(&mut string, "{}", value)?;
-        if iter.peek().is_some() {
-            string.push_str(", ");
-        }
+impl<T> ValidIndex<usize> for EtaMatrix<T> {
+    fn is_index_valid(&self, index: usize) -> bool {
+        index < self.eta_column.len()
     }
-    string.push(']');
+}
 
-    Ok(string)
+impl<'a, T> IntoIterator for &'a EtaMatrix<T>
+where
+    T: Scalar,
+{
+    type Item = &'a T;
+    type IntoIter = MatrixIter<'a, T, Dyn, Const<1>, VecStorage<T, Dyn, Const<1>>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.eta_column.into_iter()
+    }
+}
+
+impl<T> PartialEq for EtaMatrix<T>
+where
+    T: PartialEq,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.column_index == other.column_index && self.eta_column == other.eta_column
+    }
+}
+
+impl<T> Eq for EtaMatrix<T> where T: Eq {}
+
+impl<T> PartialOrd for EtaMatrix<T>
+where
+    T: PartialOrd,
+{
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.column_index.partial_cmp(&other.column_index)
+    }
+}
+
+impl<T> Ord for EtaMatrix<T>
+where
+    T: Ord,
+{
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.column_index.cmp(&other.column_index)
+    }
 }
 
 impl<T> std::fmt::Display for EtaMatrix<T>
 where
-    T: std::fmt::Debug + std::fmt::Display,
+    T: std::fmt::Debug + std::fmt::Display + Clone + PartialEq + 'static,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let column_string = vec_to_string(&self.column)?;
-        write!(f, "{}|{}", self.column_index, column_string)
+        write!(f, "{}|{}", self.column_index, self.eta_column)
     }
 }
 
-impl<T> Into<CsVec<T>> for EtaMatrix<T> {
-    fn into(self) -> CsVec<T> {
-        self.column
-    }
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nalgebra::DVector;
 
-impl<T> From<(usize, CsVec<T>)> for EtaMatrix<T> {
-    fn from((column_index, column): (usize, CsVec<T>)) -> Self {
-        Self::new(column_index, column)
+    #[test]
+    fn test_left_solve_basic_case() {
+        // Create an EtaMatrix with a non-identity column.
+        let column_index = 1;
+        let eta_column = DVector::from_vec(vec![6.0, 2.0, 0.0]);
+        // The eta matrix is
+        //
+        // | 1 6 0 |
+        // | 0 2 0 |
+        // | 0 0 1 |
+        //
+        // Thus the inverse of the eta matrix is
+        //
+        // | 1 -3  0 |
+        // | 0 0.5 0 |
+        // | 0  0  1 |
+        let eta_matrix = EtaMatrix::new(column_index, eta_column);
+
+        // Input vector to transform.
+        // The vector is [1, 4, 3].
+        let mut y = DVector::from_vec(vec![1.0, 4.0, 3.0]);
+
+        // We will try to solve the equation
+        //
+        // | 1 6 0 |   | x1 |   | 1 |
+        // | 0 2 0 | * | x2 | = | 4 |
+        // | 0 0 1 |   | x3 |   | 3 |
+        //
+        eta_matrix.left_solve_mut(&mut y);
+
+        // The vector should be [-11, 2, 3].
+        let expected = DVector::from_vec(vec![-11.0, 2.0, 3.0]);
+
+        // Assert equality.
+        assert_eq!(y, expected);
     }
 }

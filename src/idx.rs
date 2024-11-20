@@ -18,9 +18,19 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-mod etam;
-mod idx;
+#![allow(dead_code)]
 
-fn main() {
-    println!("Hello, world!");
+/// A trait that defines a method to check if an index is valid.
+///
+/// # Type parameters
+/// - `I`: The type of the index.
+pub trait ValidIndex<I> {
+    /// Check if the index is valid.
+    ///
+    /// # Arguments
+    /// - `index`: The index to check.
+    ///
+    /// # Returns
+    /// `true` if the index is valid, `false` otherwise.
+    fn is_index_valid(&self, index: I) -> bool;
 }
