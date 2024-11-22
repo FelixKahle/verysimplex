@@ -490,8 +490,8 @@ where
             return Err(DimensionMismatchError::new(self.size(), y.len()).into());
         }
 
-        let pivot = *self.pivot();
-        if pivot.is_zero() {
+        let pivot_value = *self.pivot();
+        if pivot_value.is_zero() {
             return Err(ZeroPivotElementError::new(self.pivot_column(), self.pivot_row()).into());
         }
 
@@ -506,7 +506,7 @@ where
         }
 
         // Normalize the pivot column value.
-        y[self.column_index] = y_value / pivot;
+        y[self.column_index] = y_value / pivot_value;
 
         Ok(())
     }
