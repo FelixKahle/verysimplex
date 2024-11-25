@@ -25,6 +25,10 @@ use std::ops::{DivAssign, SubAssign};
 use crate::{
     alias::{DenseColumn, DenseRow},
     idx::ValidIndex,
+    linsys::{
+        InvalidColumnCountError, InvalidRowCountError, LeftSolve, LeftSolveError, RightSolve,
+        RightSolveError, ZeroPivotElementError,
+    },
 };
 use nalgebra::{iter::MatrixIter, Const, Dyn, Scalar, SquareMatrix, VecStorage};
 use num_traits::{One, Zero};
@@ -355,152 +359,7 @@ where
     }
 }
 
-/// An error indicating that the size of a column vector does not match the size of an eta matrix.
-/// This error occurs when attempting to perform an operation with an eta matrix and a vector
-/// that have incompatible sizes.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DimensionMismatchError {
-    /// The size of the eta matrix.
-    /// Since the eta matrix is square, the size determines both the number of rows and columns.
-    eta_matrix_size: usize,
-
-    /// The length of the vector that caused the error.
-    vector_len: usize,
-}
-
-impl DimensionMismatchError {
-    /// Construct a new `DimensionMismatchError`.
-    ///
-    /// # Parameters
-    /// - `eta_matrix_size`: The size of the eta matrix.
-    /// - `vector_len`: The length of the vector that caused the error.
-    ///
-    /// # Returns
-    /// A new `DimensionMismatchError`.
-    pub fn new(eta_matrix_size: usize, vector_len: usize) -> Self {
-        Self {
-            eta_matrix_size,
-            vector_len,
-        }
-    }
-
-    /// Get the size of the eta matrix.
-    ///
-    /// # Returns
-    /// The size of the eta matrix.
-    pub fn eta_matrix_size(&self) -> usize {
-        self.eta_matrix_size
-    }
-
-    /// Get the length of the vector that caused the error.
-    ///
-    /// # Returns
-    /// The length of the vector that caused the error.
-    pub fn vector_len(&self) -> usize {
-        self.vector_len
-    }
-}
-
-impl std::fmt::Display for DimensionMismatchError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(
-            f,
-            "dimension mismatch: eta matrix size is {} but vector length is {}",
-            self.eta_matrix_size, self.vector_len
-        )
-    }
-}
-
-impl std::error::Error for DimensionMismatchError {}
-
-/// An error indicating a zero pivot element which is not allowed for certain operations.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ZeroPivotElementError {
-    /// The column index of the zero pivot element.
-    column_index: usize,
-    /// The row index of the zero pivot element.
-    row_index: usize,
-}
-
-impl ZeroPivotElementError {
-    /// Construct a new `ZeroPivotElementError`.
-    ///
-    /// # Parameters
-    /// - `column_index`: The column index of the zero pivot element.
-    /// - `row_index`: The row index of the zero pivot element.
-    ///
-    /// # Returns
-    /// A new `ZeroPivotElementError`.
-    pub fn new(column_index: usize, row_index: usize) -> Self {
-        Self {
-            column_index,
-            row_index,
-        }
-    }
-
-    /// Get the column index of the zero pivot element.
-    ///
-    /// # Returns
-    /// The column index of the zero pivot element.
-    pub fn column_index(&self) -> usize {
-        self.column_index
-    }
-
-    /// Get the row index of the zero pivot element.
-    ///
-    /// # Returns
-    /// The row index of the zero pivot element.
-    pub fn row_index(&self) -> usize {
-        self.row_index
-    }
-}
-
-impl std::fmt::Display for ZeroPivotElementError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(
-            f,
-            "zero pivot element at column {} and row {}",
-            self.column_index, self.row_index
-        )
-    }
-}
-
-impl std::error::Error for ZeroPivotElementError {}
-
-/// An error that can occur when solving a system of linear equations with an eta matrix.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum EtaMatrixSolveError {
-    /// An error indicating that the size of a column vector does not match the size of an eta matrix.
-    DimensionMismatch(DimensionMismatchError),
-
-    /// Encountered a zero pivot element which is not allowed for certain operations.
-    ZeroPivotElement(ZeroPivotElementError),
-}
-
-impl std::fmt::Display for EtaMatrixSolveError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Self::DimensionMismatch(err) => write!(f, "{}", err),
-            Self::ZeroPivotElement(err) => write!(f, "{}", err),
-        }
-    }
-}
-
-impl std::error::Error for EtaMatrixSolveError {}
-
-impl From<DimensionMismatchError> for EtaMatrixSolveError {
-    fn from(err: DimensionMismatchError) -> Self {
-        Self::DimensionMismatch(err)
-    }
-}
-
-impl From<ZeroPivotElementError> for EtaMatrixSolveError {
-    fn from(err: ZeroPivotElementError) -> Self {
-        Self::ZeroPivotElement(err)
-    }
-}
-
-impl<T> EtaMatrix<T>
+impl<T> LeftSolve<T> for EtaMatrix<T>
 where
     T: Scalar
         + Copy
@@ -519,9 +378,9 @@ where
     ///
     /// # Returns
     /// Error is an error occurs during the solve operation.
-    pub fn left_solve_mut(&self, y: &mut DenseRow<T>) -> Result<(), EtaMatrixSolveError> {
+    fn left_solve_mut(&self, y: &mut DenseRow<T>) -> Result<(), LeftSolveError> {
         if self.size() != y.len() {
-            return Err(DimensionMismatchError::new(self.size(), y.len()).into());
+            return Err(InvalidColumnCountError::new(self.size(), y.len()).into());
         }
 
         let pivot_value = *self.pivot();
@@ -555,12 +414,23 @@ where
     /// # Returns
     /// The solution of the system.
     #[inline]
-    pub fn left_solve(&self, y: &DenseRow<T>) -> Result<DenseRow<T>, EtaMatrixSolveError> {
+    fn left_solve(&self, y: &DenseRow<T>) -> Result<DenseRow<T>, LeftSolveError> {
         let mut y = y.clone();
         self.left_solve_mut(&mut y)?;
         Ok(y)
     }
+}
 
+impl<T> RightSolve<T> for EtaMatrix<T>
+where
+    T: Scalar
+        + Copy
+        + Zero
+        + SubAssign
+        + DivAssign
+        + std::ops::Mul<Output = T>
+        + std::ops::Div<Output = T>,
+{
     /// Solves the system `E.d = a`, `a` beeing the initial value of `d`.
     /// Then
     ///
@@ -579,10 +449,10 @@ where
     ///
     /// # Returns
     /// Error is an error occurs during the solve operation.
-    pub fn right_solve_mut(&self, d: &mut DenseColumn<T>) -> Result<(), EtaMatrixSolveError> {
+    fn right_solve_mut(&self, d: &mut DenseColumn<T>) -> Result<(), RightSolveError> {
         // Check the dimensions of the eta matrix and the vector.
         if self.size() != d.len() {
-            return Err(DimensionMismatchError::new(self.size(), d.len()).into());
+            return Err(InvalidRowCountError::new(self.size(), d.len()).into());
         }
 
         // From here it is totally safe to index into the eta matrix and the vector
@@ -626,7 +496,7 @@ where
     ///
     /// # Returns
     /// The solution of the system.
-    pub fn right_solve(&self, d: &DenseColumn<T>) -> Result<DenseColumn<T>, EtaMatrixSolveError> {
+    fn right_solve(&self, d: &DenseColumn<T>) -> Result<DenseColumn<T>, RightSolveError> {
         let mut d = d.clone();
         self.right_solve_mut(&mut d)?;
         Ok(d)
