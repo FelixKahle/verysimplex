@@ -21,7 +21,6 @@
 mod alias;
 mod etam;
 mod idx;
-mod linsys;
 
 fn main() {
     println!("Hello, world!");
