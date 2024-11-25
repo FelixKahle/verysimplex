@@ -18,10 +18,18 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-mod alias;
-mod etam;
-mod idx;
+#![allow(dead_code)]
 
-fn main() {
-    println!("Hello, world!");
-}
+use nalgebra::{DVector, RowDVector};
+
+/// A type alias for a dense column vector from the `nalgebra` library.
+///
+/// `DenseColumn<T>` represents a dynamically-sized column vector where each element
+/// is of type `T`.
+pub type DenseColumn<T> = DVector<T>;
+
+/// A type alias for a dense row vector from the `nalgebra` library.
+///
+/// `DenseRow<T>` represents a dynamically-sized row vector where each element
+/// is of type `T`.
+pub type DenseRow<T> = RowDVector<T>;

@@ -22,14 +22,20 @@
 
 use std::ops::{DivAssign, SubAssign};
 
-use crate::idx::ValidIndex;
-use nalgebra::{iter::MatrixIter, Const, DVector, Dyn, Scalar, VecStorage};
-use num_traits::Zero;
+use crate::{
+    alias::{DenseColumn, DenseRow},
+    idx::ValidIndex,
+};
+use nalgebra::{iter::MatrixIter, Const, Dyn, Scalar, SquareMatrix, VecStorage};
+use num_traits::{One, Zero};
 
 /// An eta matrix E corresponds to the identity matrix except for one column e of
 /// index j. In particular, B.E is the matrix of the new basis obtained from B by
 /// replacing the j-th vector of B by B.e, note that this is exactly what happens
 /// during a "pivot" of the current basis in the simplex algorithm.
+///
+/// Stored is only the column e and the index, t
+/// the rest of the matrix is the identity matrix.
 ///
 /// # Type parameters
 /// - `T`: The type of the elements of the eta matrix.
@@ -49,7 +55,7 @@ use num_traits::Zero;
 /// you can use the following code:
 ///
 /// ```rust
-/// let eta = EtaMatrix::new(3, DVector::from_vec(vec![3, 4, 5, 1, 0]));
+/// let eta = EtaMatrix::new(3, DenseColumn::from_vec(vec![3, 4, 5, 1, 0]));
 /// ```
 ///
 /// # Math
@@ -83,7 +89,7 @@ pub struct EtaMatrix<T> {
     column_index: usize,
 
     /// The column that is not the identity column.
-    eta_column: DVector<T>,
+    eta_column: DenseColumn<T>,
 }
 
 /// Represents an error that occurs when attempting to construct an `EtaMatrix`
@@ -161,7 +167,7 @@ impl<T> EtaMatrix<T> {
     /// A new eta matrix.
     pub fn new(
         column_index: usize,
-        eta_column: DVector<T>,
+        eta_column: DenseColumn<T>,
     ) -> Result<Self, ColumnOutOfBoundsError> {
         if column_index >= eta_column.len() {
             return Err(ColumnOutOfBoundsError::new(column_index, eta_column.len()));
@@ -185,7 +191,7 @@ impl<T> EtaMatrix<T> {
     ///
     /// # Returns
     /// The column that is not the identity column.
-    pub fn eta_column(&self) -> &DVector<T> {
+    pub fn eta_column(&self) -> &DenseColumn<T> {
         &self.eta_column
     }
 
@@ -291,6 +297,34 @@ impl<T> EtaMatrix<T> {
     /// where `j` is the column index, aligning the row and column indices in this case.
     pub fn pivot_column(&self) -> usize {
         self.column_index
+    }
+
+    /// Get the determinant of the eta matrix.
+    ///
+    /// # Returns
+    /// The determinant of the eta matrix.
+    pub fn determinant(&self) -> &T {
+        &self.eta_column[self.column_index]
+    }
+
+    /// Returns the complete matrix representation of the eta matrix
+    /// as a `SquareMatrix`.
+    ///
+    /// # Returns
+    /// The full matrix representation of the eta matrix.
+    pub fn to_full_matrix(&self) -> SquareMatrix<T, Dyn, VecStorage<T, Dyn, Dyn>>
+    where
+        T: Scalar + Zero + One,
+    {
+        let size = self.size();
+        let mut eta_matrix: SquareMatrix<T, Dyn, VecStorage<T, Dyn, Dyn>> =
+            SquareMatrix::<T, Dyn, VecStorage<T, Dyn, Dyn>>::identity(size, size);
+
+        for (i, v) in self.eta_column.iter().enumerate() {
+            eta_matrix[(i, self.column_index)] = v.clone();
+        }
+
+        eta_matrix
     }
 }
 
@@ -485,7 +519,7 @@ where
     ///
     /// # Returns
     /// Error is an error occurs during the solve operation.
-    pub fn left_solve_mut(&self, y: &mut DVector<T>) -> Result<(), EtaMatrixSolveError> {
+    pub fn left_solve_mut(&self, y: &mut DenseRow<T>) -> Result<(), EtaMatrixSolveError> {
         if self.size() != y.len() {
             return Err(DimensionMismatchError::new(self.size(), y.len()).into());
         }
@@ -521,7 +555,7 @@ where
     /// # Returns
     /// The solution of the system.
     #[inline]
-    pub fn left_solve(&self, y: &DVector<T>) -> Result<DVector<T>, EtaMatrixSolveError> {
+    pub fn left_solve(&self, y: &DenseRow<T>) -> Result<DenseRow<T>, EtaMatrixSolveError> {
         let mut y = y.clone();
         self.left_solve_mut(&mut y)?;
         Ok(y)
@@ -545,7 +579,7 @@ where
     ///
     /// # Returns
     /// Error is an error occurs during the solve operation.
-    pub fn right_solve_mut(&self, d: &mut DVector<T>) -> Result<(), EtaMatrixSolveError> {
+    pub fn right_solve_mut(&self, d: &mut DenseColumn<T>) -> Result<(), EtaMatrixSolveError> {
         // Check the dimensions of the eta matrix and the vector.
         if self.size() != d.len() {
             return Err(DimensionMismatchError::new(self.size(), d.len()).into());
@@ -592,7 +626,7 @@ where
     ///
     /// # Returns
     /// The solution of the system.
-    pub fn right_solve(&self, d: &DVector<T>) -> Result<DVector<T>, EtaMatrixSolveError> {
+    pub fn right_solve(&self, d: &DenseColumn<T>) -> Result<DenseColumn<T>, EtaMatrixSolveError> {
         let mut d = d.clone();
         self.right_solve_mut(&mut d)?;
         Ok(d)
@@ -676,45 +710,138 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nalgebra::DVector;
 
     #[test]
     fn test_left_solve() {
-        // Create an EtaMatrix with a non-identity column.
-        let column_index = 1;
-        let eta_column = DVector::from_vec(vec![0.0, 2.0, 1.0]);
-        let eta_matrix = EtaMatrix::new(column_index, eta_column).unwrap();
+        // Create the matrix:
+        // |  1  0  3  0  |
+        // |  0  1  4  0  |
+        // |  0  0  2  0  |
+        // |  0  0  7  1  |
+        let eta_matrix =
+            EtaMatrix::new(2, DenseColumn::from_vec(vec![3.0, 4.0, 2.0, 7.0])).unwrap();
 
-        // Input vector to solve: `y.E = c`
-        let c = DVector::from_vec(vec![4.0, 8.0, 6.0]);
+        // Create the vector.
+        // |  5  6  7  8  |
+        let a = DenseRow::from_vec(vec![5.0, 6.0, 7.0, 8.0]);
 
-        // Solve for `y`.
-        let y = eta_matrix.left_solve(&c).unwrap();
+        // Solve the system:
+        // |  d_0  d_1  d_2  d_3  | |  1  0  3  0  |   |  5  |
+        //                          |  0  1  4  0  |   |  6  |
+        //                          |  0  0  2  0  | = |  7  |
+        //                          |  0  0  7  1  |   |  8  |
+        let d = eta_matrix.left_solve(&a).unwrap();
 
-        // Manually computed expected result.
-        let expected_y = DVector::from_vec(vec![4.0, 1.0, 6.0]);
+        // The expected solution is:
+        // |  5  6  -44  8  |
+        let expected_x = DenseRow::from_vec(vec![5.0, 6.0, -44.0, 8.0]);
 
-        // Assert the result is as expected.
-        assert_eq!(y, expected_y);
+        // Assert that the solution is correct.
+        assert_eq!(d, expected_x);
     }
 
     #[test]
     fn test_right_solve() {
-        // Create an EtaMatrix with a non-identity column.
-        let column_index = 1;
-        let eta_column = DVector::from_vec(vec![3.0, 2.0, 0.0]);
-        let eta_matrix = EtaMatrix::new(column_index, eta_column).unwrap();
+        // Create the matrix:
+        // |  1  0  3  0  |
+        // |  0  1  4  0  |
+        // |  0  0  2  0  |
+        // |  0  0  7  1  |
+        let eta_matrix =
+            EtaMatrix::new(2, DenseColumn::from_vec(vec![3.0, 4.0, 2.0, 7.0])).unwrap();
 
-        // Input vector to solve: `E.d = a`
-        let a = DVector::from_vec(vec![9.0, 4.0, 7.0]);
+        // Create the vector.
+        // | 5 |
+        // | 6 |
+        // | 7 |
+        // | 8 |
+        let a = DenseColumn::from_vec(vec![5.0, 6.0, 7.0, 8.0]);
 
-        // Solve for `d`.
+        // Solve the system:
+        // |  1  0  3  0  | | d_0 |   | 5 |
+        // |  0  1  4  0  | | d_1 |   | 6 |
+        // |  0  0  2  0  | | d_2 | = | 7 |
+        // |  0  0  7  1  | | d_3 |   | 8 |
         let d = eta_matrix.right_solve(&a).unwrap();
 
-        // Manually computed expected result.
-        let expected_d = DVector::from_vec(vec![3.0, 2.0, 7.0]);
+        // The expected result is:
+        // |  -5.5  |
+        // |  -8.0  |
+        // |   5.0  |
+        // |  -16.5  |
+        let expected_d = DenseColumn::from_vec(vec![-5.5, -8.0, 3.5, -16.5]);
 
         // Assert the result is as expected.
         assert_eq!(d, expected_d);
+    }
+
+    #[test]
+    fn test_to_full_matrix() {
+        // Create the matrix:
+        // |  1  0  3  0  |
+        // |  0  1  4  0  |
+        // |  0  0  2  0  |
+        // |  0  0  7  1  |
+        let eta_matrix =
+            EtaMatrix::new(2, DenseColumn::from_vec(vec![3.0, 4.0, 2.0, 7.0])).unwrap();
+
+        // Expected full matrix:
+        // |  1  0  3  0  |
+        // |  0  1  4  0  |
+        // |  0  0  2  0  |
+        // |  0  0  7  1  |
+        let expected = SquareMatrix::<f64, Dyn, VecStorage<f64, Dyn, Dyn>>::from_row_slice(
+            4,
+            4,
+            &[
+                1.0, 0.0, 3.0, 0.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 7.0, 1.0,
+            ],
+        );
+
+        // Convert the eta matrix to a full matrix.
+        let full = eta_matrix.to_full_matrix();
+
+        // Assert that the full matrix is as expected.
+        assert_eq!(full, expected);
+    }
+
+    #[test]
+    fn test_pivot() {
+        // Create the matrix:
+        // |  1  0  3  0  |
+        // |  0  1  4  0  |
+        // |  0  0  2  0  |
+        // |  0  0  7  1  |
+        let eta_matrix =
+            EtaMatrix::new(2, DenseColumn::from_vec(vec![3.0, 4.0, 2.0, 7.0])).unwrap();
+
+        // Get the pivot of the matrix.
+        let pivot = eta_matrix.pivot().clone();
+
+        // The expected pivot is 2.0.
+        let expected = 2.0;
+
+        // Assert that the pivot is as expected.
+        assert_eq!(pivot, expected);
+    }
+
+    #[test]
+    fn test_determinant() {
+        // Create the matrix:
+        // |  1  0  3  0  |
+        // |  0  1  4  0  |
+        // |  0  0  2  0  |
+        // |  0  0  7  1  |
+        let eta_matrix =
+            EtaMatrix::new(2, DenseColumn::from_vec(vec![3.0, 4.0, 2.0, 7.0])).unwrap();
+
+        // Get the determinant of the matrix.
+        let determinant = eta_matrix.determinant().clone();
+
+        // The expected determinant is 2.0.
+        let expected = 2.0;
+
+        // Assert that the determinant is as expected.
+        assert_eq!(determinant, expected);
     }
 }
