@@ -20,7 +20,7 @@
 
 #![allow(dead_code)]
 
-use nalgebra::{DVector, RowDVector};
+use nalgebra::{DVector, RowDVector, Scalar};
 
 /// A type alias for a dense column vector from the `nalgebra` library.
 ///
@@ -33,3 +33,82 @@ pub type DenseColumn<T> = DVector<T>;
 /// `DenseRow<T>` represents a dynamically-sized row vector where each element
 /// is of type `T`.
 pub type DenseRow<T> = RowDVector<T>;
+
+/// A trait for converting a type into a dense column vector.
+///
+/// # Type Parameters
+/// - `T`: The type of the elements in the column vector.
+pub trait IntoDenseColumn<T> {
+    fn into_dense_column(self) -> DenseColumn<T>;
+}
+
+/// A trait for converting a type into a dense row vector.
+///
+/// # Type Parameters
+/// - `T`: The type of the elements in the row vector.
+pub trait IntoDenseRow<T> {
+    fn into_dense_row(self) -> DenseRow<T>;
+}
+
+impl<T: Scalar> IntoDenseColumn<T> for DenseRow<T> {
+    fn into_dense_column(self) -> DenseColumn<T> {
+        unsafe {
+            let vec = std::ptr::read(&self.data as *const _ as *const Vec<T>);
+            std::mem::forget(self);
+            DenseColumn::from_vec(vec)
+        }
+    }
+}
+
+impl<T: Scalar> IntoDenseRow<T> for DenseColumn<T> {
+    fn into_dense_row(self) -> DenseRow<T> {
+        unsafe {
+            let vec = std::ptr::read(&self.data as *const _ as *const Vec<T>);
+            std::mem::forget(self);
+            DenseRow::from_vec(vec)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Creates a dense column vector with the elements 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0.
+    ///
+    /// # Returns
+    /// A dense column vector with the elements 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0.
+    fn create_dense_row() -> DenseRow<f64> {
+        DenseRow::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0])
+    }
+
+    /// Creates a dense row vector with the elements 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0.
+    ///
+    /// # Returns
+    /// A dense row vector with the elements 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0.
+    fn create_dense_column() -> DenseColumn<f64> {
+        DenseColumn::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0])
+    }
+
+    #[test]
+    fn test_dense_row_into_dense_column() {
+        let row = create_dense_row();
+        let expected_row_count = row.ncols();
+        let col = row.into_dense_column();
+
+        assert_eq!(1, col.ncols());
+        assert_eq!(expected_row_count, col.nrows());
+        assert_eq!(col, create_dense_column());
+    }
+
+    #[test]
+    fn test_dense_column_into_dense_row() {
+        let col = create_dense_column();
+        let expected_col_count = col.nrows();
+        let row = col.into_dense_row();
+
+        assert_eq!(1, row.nrows());
+        assert_eq!(expected_col_count, row.ncols());
+        assert_eq!(row, create_dense_row());
+    }
+}
