@@ -20,14 +20,15 @@
 
 #![allow(dead_code)]
 
-use std::ops::{DivAssign, SubAssign};
-
 use crate::{
     alias::{DenseColumn, DenseRow},
     idx::ValidIndex,
+    linerr::{InvalidColumnCountError, InvalidRowCountError},
+    linsys::{LeftSolve, RightSolve},
 };
 use nalgebra::{iter::MatrixIter, Const, Dyn, Scalar, SquareMatrix, VecStorage};
 use num_traits::{One, Zero};
+use std::ops::{DivAssign, SubAssign};
 
 /// An eta matrix E corresponds to the identity matrix except for one column e of
 /// index j. In particular, B.E is the matrix of the new basis obtained from B by
@@ -355,152 +356,108 @@ where
     }
 }
 
-/// An error indicating that the size of a column vector does not match the size of an eta matrix.
-/// This error occurs when attempting to perform an operation with an eta matrix and a vector
-/// that have incompatible sizes.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DimensionMismatchError {
-    /// The size of the eta matrix.
-    /// Since the eta matrix is square, the size determines both the number of rows and columns.
-    eta_matrix_size: usize,
-
-    /// The length of the vector that caused the error.
-    vector_len: usize,
-}
-
-impl DimensionMismatchError {
-    /// Construct a new `DimensionMismatchError`.
-    ///
-    /// # Parameters
-    /// - `eta_matrix_size`: The size of the eta matrix.
-    /// - `vector_len`: The length of the vector that caused the error.
+impl<T> EtaMatrix<T>
+where
+    T: Zero,
+{
+    /// Check if the eta matrix is singular.
     ///
     /// # Returns
-    /// A new `DimensionMismatchError`.
-    pub fn new(eta_matrix_size: usize, vector_len: usize) -> Self {
-        Self {
-            eta_matrix_size,
-            vector_len,
-        }
-    }
-
-    /// Get the size of the eta matrix.
-    ///
-    /// # Returns
-    /// The size of the eta matrix.
-    pub fn eta_matrix_size(&self) -> usize {
-        self.eta_matrix_size
-    }
-
-    /// Get the length of the vector that caused the error.
-    ///
-    /// # Returns
-    /// The length of the vector that caused the error.
-    pub fn vector_len(&self) -> usize {
-        self.vector_len
+    /// `true` if the eta matrix is singular, `false` otherwise.
+    pub fn is_singular(&self) -> bool {
+        self.eta_column[self.column_index].is_zero()
     }
 }
 
-impl std::fmt::Display for DimensionMismatchError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(
-            f,
-            "dimension mismatch: eta matrix size is {} but vector length is {}",
-            self.eta_matrix_size, self.vector_len
-        )
-    }
+/// Error that occurs when solving a linear system of the form `x * A = b`,
+/// where `A` is the eta matrix, and `x` is the unknown to be determined.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EtaMatrixLeftSolveError {
+    /// Error that occurs when the number of rows in the eta matrix does not match
+    /// the number of elements in the right-hand side vector.
+    InvalidRowCount(InvalidRowCountError),
+
+    /// Error that occurs when the eta matrix is singular.
+    SingularMatrix,
 }
 
-impl std::error::Error for DimensionMismatchError {}
-
-/// An error indicating a zero pivot element which is not allowed for certain operations.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ZeroPivotElementError {
-    /// The column index of the zero pivot element.
-    column_index: usize,
-    /// The row index of the zero pivot element.
-    row_index: usize,
-}
-
-impl ZeroPivotElementError {
-    /// Construct a new `ZeroPivotElementError`.
-    ///
-    /// # Parameters
-    /// - `column_index`: The column index of the zero pivot element.
-    /// - `row_index`: The row index of the zero pivot element.
-    ///
-    /// # Returns
-    /// A new `ZeroPivotElementError`.
-    pub fn new(column_index: usize, row_index: usize) -> Self {
-        Self {
-            column_index,
-            row_index,
-        }
-    }
-
-    /// Get the column index of the zero pivot element.
-    ///
-    /// # Returns
-    /// The column index of the zero pivot element.
-    pub fn column_index(&self) -> usize {
-        self.column_index
-    }
-
-    /// Get the row index of the zero pivot element.
-    ///
-    /// # Returns
-    /// The row index of the zero pivot element.
-    pub fn row_index(&self) -> usize {
-        self.row_index
-    }
-}
-
-impl std::fmt::Display for ZeroPivotElementError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(
-            f,
-            "zero pivot element at column {} and row {}",
-            self.column_index, self.row_index
-        )
-    }
-}
-
-impl std::error::Error for ZeroPivotElementError {}
-
-/// An error that can occur when solving a system of linear equations with an eta matrix.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum EtaMatrixSolveError {
-    /// An error indicating that the size of a column vector does not match the size of an eta matrix.
-    DimensionMismatch(DimensionMismatchError),
-
-    /// Encountered a zero pivot element which is not allowed for certain operations.
-    ZeroPivotElement(ZeroPivotElementError),
-}
-
-impl std::fmt::Display for EtaMatrixSolveError {
+impl std::fmt::Display for EtaMatrixLeftSolveError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            Self::DimensionMismatch(err) => write!(f, "{}", err),
-            Self::ZeroPivotElement(err) => write!(f, "{}", err),
+            EtaMatrixLeftSolveError::InvalidRowCount(e) => write!(f, "{}", e),
+            EtaMatrixLeftSolveError::SingularMatrix => write!(f, "singular matrix"),
         }
     }
 }
 
-impl std::error::Error for EtaMatrixSolveError {}
+impl std::error::Error for EtaMatrixLeftSolveError {}
 
-impl From<DimensionMismatchError> for EtaMatrixSolveError {
-    fn from(err: DimensionMismatchError) -> Self {
-        Self::DimensionMismatch(err)
+impl From<InvalidRowCountError> for EtaMatrixLeftSolveError {
+    fn from(e: InvalidRowCountError) -> Self {
+        EtaMatrixLeftSolveError::InvalidRowCount(e)
     }
 }
 
-impl From<ZeroPivotElementError> for EtaMatrixSolveError {
-    fn from(err: ZeroPivotElementError) -> Self {
-        Self::ZeroPivotElement(err)
+/// Error that occurs when solving a linear system of the form `A * x = b`,
+/// where `A` is the eta matrix, and `x` is the unknown to be determined.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EtaMatrixRightSolveError {
+    /// Error that occurs when the number of columns in the eta matrix does not match
+    /// the number of elements in the right-hand side vector.
+    InvalidColumnCount(InvalidColumnCountError),
+
+    /// Error that occurs when the eta matrix is singular.
+    SingularMatrix,
+}
+
+impl std::fmt::Display for EtaMatrixRightSolveError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            EtaMatrixRightSolveError::InvalidColumnCount(e) => write!(f, "{}", e),
+            EtaMatrixRightSolveError::SingularMatrix => write!(f, "singular matrix"),
+        }
     }
 }
 
-impl<T> EtaMatrix<T>
+impl std::error::Error for EtaMatrixRightSolveError {}
+
+impl From<InvalidColumnCountError> for EtaMatrixRightSolveError {
+    fn from(e: InvalidColumnCountError) -> Self {
+        EtaMatrixRightSolveError::InvalidColumnCount(e)
+    }
+}
+
+impl<T> LeftSolve<T> for EtaMatrix<T>
+where
+    T: Scalar + Copy + Zero + SubAssign + std::ops::Mul<Output = T> + std::ops::Div<Output = T>,
+{
+    type Error = EtaMatrixLeftSolveError;
+
+    fn left_solve(&self, y: Box<DenseRow<T>>) -> Result<Box<DenseRow<T>>, Self::Error> {
+        if self.size() != y.len() {
+            return Err(InvalidRowCountError::new(self.size(), y.len()).into());
+        }
+
+        let pivot_value = *self.pivot();
+        if pivot_value.is_zero() {
+            return Err(EtaMatrixLeftSolveError::SingularMatrix);
+        }
+
+        let mut y = *y;
+        let mut y_value = y[self.column_index];
+        for (row_index, &eta_coefficient) in self.eta_column.iter().enumerate() {
+            if row_index != self.column_index {
+                y_value -= y[row_index] * eta_coefficient;
+            }
+        }
+
+        y[self.column_index] = y_value / pivot_value;
+
+        Ok(Box::new(y))
+    }
+}
+
+impl<T> RightSolve<T> for EtaMatrix<T>
 where
     T: Scalar
         + Copy
@@ -510,126 +467,29 @@ where
         + std::ops::Mul<Output = T>
         + std::ops::Div<Output = T>,
 {
-    /// Solves the system `y.E = c`, `c` beeing the initial value of `y`.
-    /// Then `y = c.E^{-1}`, so `y` is equal to `c` except for
-    /// `y_j = (c_j - \sum_{i != j}{c_i * e_i}) / e_j`.
-    ///
-    /// # Parameters
-    /// - `y`: The vector to solve the system for.
-    ///
-    /// # Returns
-    /// Error is an error occurs during the solve operation.
-    pub fn left_solve_mut(&self, y: &mut DenseRow<T>) -> Result<(), EtaMatrixSolveError> {
-        if self.size() != y.len() {
-            return Err(DimensionMismatchError::new(self.size(), y.len()).into());
-        }
+    type Error = EtaMatrixRightSolveError;
 
-        let pivot_value = *self.pivot();
-        if pivot_value.is_zero() {
-            return Err(ZeroPivotElementError::new(self.pivot_column(), self.pivot_row()).into());
-        }
-
-        // Fetch the value of y corresponding to the pivot column.
-        let mut y_value = y[self.column_index];
-
-        // Subtract contributions from the eta column.
-        for (row_index, &eta_coefficient) in self.eta_column.iter().enumerate() {
-            if row_index != self.column_index {
-                y_value -= y[row_index] * eta_coefficient;
-            }
-        }
-
-        // Normalize the pivot column value.
-        y[self.column_index] = y_value / pivot_value;
-
-        Ok(())
-    }
-
-    /// Solves the system `y.E = c`, `c` beeing the initial value of `y`.
-    /// Then `y = c.E^{-1}`, so `y` is equal to `c` except for
-    /// `y_j = (c_j - \sum_{i != j}{c_i * e_i}) / e_j`.
-    ///
-    /// # Parameters
-    /// - `y`: The vector to solve the system for.
-    ///
-    /// # Returns
-    /// The solution of the system.
-    #[inline]
-    pub fn left_solve(&self, y: &DenseRow<T>) -> Result<DenseRow<T>, EtaMatrixSolveError> {
-        let mut y = y.clone();
-        self.left_solve_mut(&mut y)?;
-        Ok(y)
-    }
-
-    /// Solves the system `E.d = a`, `a` beeing the initial value of `d`.
-    /// Then
-    ///
-    /// ```text
-    /// d = E^{-1}.a = | a_0     - e_0   *   a_j / e_j  |
-    ///                |            ...                 |
-    ///                |  a_{j-1} - e_{j-1} * a_j / e_j |
-    ///                |                      a_j / e_j |
-    ///                |  a_{j+1} - e_{j+1} * a_j / e_j |
-    ///                |            ...                 |
-    ///                |  a_{n-1} - e_{n-1} * a_j / e_j |
-    /// ```
-    ///
-    /// # Parameters
-    /// - `d`: The vector to solve the system for.
-    ///
-    /// # Returns
-    /// Error is an error occurs during the solve operation.
-    pub fn right_solve_mut(&self, d: &mut DenseColumn<T>) -> Result<(), EtaMatrixSolveError> {
-        // Check the dimensions of the eta matrix and the vector.
+    fn right_solve(&self, d: Box<DenseColumn<T>>) -> Result<Box<DenseColumn<T>>, Self::Error> {
         if self.size() != d.len() {
-            return Err(DimensionMismatchError::new(self.size(), d.len()).into());
+            return Err(InvalidColumnCountError::new(self.size(), d.len()).into());
         }
 
-        // From here it is totally safe to index into the eta matrix and the vector
-        // because we have already checked that the dimensions match.
         let pivot_value = *self.pivot();
-
-        // Check if the pivot element is zero.
         if pivot_value.is_zero() {
-            return Err(ZeroPivotElementError::new(self.pivot_row(), self.pivot_column()).into());
+            return Err(EtaMatrixRightSolveError::SingularMatrix);
         }
 
-        // Normalize the pivot row by dividing the vector's corresponding entry by the pivot value.
+        let mut d = *d;
         d[self.column_index] /= pivot_value;
         let normalized_value = d[self.column_index];
 
-        // Update all rows except the pivot row by subtracting the scaled eta column values.
         for (row_index, &eta_coefficient) in self.eta_column.iter().enumerate() {
             if row_index != self.column_index {
                 d[row_index] -= normalized_value * eta_coefficient;
             }
         }
 
-        Ok(())
-    }
-
-    /// Solves the system `E.d = a`, `a` beeing the initial value of `d`.
-    /// Then
-    ///
-    /// ```text
-    /// d = E^{-1}.a = | a_0     - e_0   *   a_j / e_j  |
-    ///                |            ...                 |
-    ///                |  a_{j-1} - e_{j-1} * a_j / e_j |
-    ///                |                      a_j / e_j |
-    ///                |  a_{j+1} - e_{j+1} * a_j / e_j |
-    ///                |            ...                 |
-    ///                |  a_{n-1} - e_{n-1} * a_j / e_j |
-    /// ```
-    ///
-    /// # Parameters
-    /// - `d`: The vector to solve the system for.
-    ///
-    /// # Returns
-    /// The solution of the system.
-    pub fn right_solve(&self, d: &DenseColumn<T>) -> Result<DenseColumn<T>, EtaMatrixSolveError> {
-        let mut d = d.clone();
-        self.right_solve_mut(&mut d)?;
-        Ok(d)
+        Ok(Box::new(d))
     }
 }
 
@@ -723,21 +583,21 @@ mod tests {
 
         // Create the vector.
         // |  5  6  7  8  |
-        let a = DenseRow::from_vec(vec![5.0, 6.0, 7.0, 8.0]);
+        let a = Box::new(DenseRow::from_vec(vec![5.0, 6.0, 7.0, 8.0]));
 
         // Solve the system:
         // |  d_0  d_1  d_2  d_3  | |  1  0  3  0  |   |  5  |
         //                          |  0  1  4  0  |   |  6  |
         //                          |  0  0  2  0  | = |  7  |
         //                          |  0  0  7  1  |   |  8  |
-        let d = eta_matrix.left_solve(&a).unwrap();
+        let d = eta_matrix.left_solve(a).unwrap();
 
         // The expected solution is:
         // |  5  6  -44  8  |
         let expected_x = DenseRow::from_vec(vec![5.0, 6.0, -44.0, 8.0]);
 
         // Assert that the solution is correct.
-        assert_eq!(d, expected_x);
+        assert_eq!(*d, expected_x);
     }
 
     #[test]
@@ -755,14 +615,14 @@ mod tests {
         // | 6 |
         // | 7 |
         // | 8 |
-        let a = DenseColumn::from_vec(vec![5.0, 6.0, 7.0, 8.0]);
+        let a = Box::new(DenseColumn::from_vec(vec![5.0, 6.0, 7.0, 8.0]));
 
         // Solve the system:
         // |  1  0  3  0  | | d_0 |   | 5 |
         // |  0  1  4  0  | | d_1 |   | 6 |
         // |  0  0  2  0  | | d_2 | = | 7 |
         // |  0  0  7  1  | | d_3 |   | 8 |
-        let d = eta_matrix.right_solve(&a).unwrap();
+        let d = eta_matrix.right_solve(a).unwrap();
 
         // The expected result is:
         // |  -5.5  |
@@ -772,7 +632,7 @@ mod tests {
         let expected_d = DenseColumn::from_vec(vec![-5.5, -8.0, 3.5, -16.5]);
 
         // Assert the result is as expected.
-        assert_eq!(d, expected_d);
+        assert_eq!(*d, expected_d);
     }
 
     #[test]
