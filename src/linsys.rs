@@ -37,7 +37,7 @@ pub trait LeftSolve<T> {
     ///
     /// # Returns
     /// The solution `x` of the linear system.
-    fn left_solve(&self, b: Box<DenseRow<T>>) -> Result<Box<DenseRow<T>>, Self::Error>;
+    fn left_solve(&self, b: DenseRow<T>) -> Result<DenseRow<T>, Self::Error>;
 }
 
 /// Trait for solving linear systems of the form `self * x = b`, where `x` is the unknown to be determined.
@@ -54,5 +54,5 @@ pub trait RightSolve<T> {
     ///
     /// # Returns
     /// The solution `x` of the linear system.
-    fn right_solve(&self, b: Box<DenseColumn<T>>) -> Result<Box<DenseColumn<T>>, Self::Error>;
+    fn right_solve(&self, b: DenseColumn<T>) -> Result<DenseColumn<T>, Self::Error>;
 }

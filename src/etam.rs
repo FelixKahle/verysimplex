@@ -433,7 +433,7 @@ where
 {
     type Error = EtaMatrixLeftSolveError;
 
-    fn left_solve(&self, y: Box<DenseRow<T>>) -> Result<Box<DenseRow<T>>, Self::Error> {
+    fn left_solve(&self, mut y: DenseRow<T>) -> Result<DenseRow<T>, Self::Error> {
         if self.size() != y.len() {
             return Err(InvalidRowCountError::new(self.size(), y.len()).into());
         }
@@ -443,7 +443,6 @@ where
             return Err(EtaMatrixLeftSolveError::SingularMatrix);
         }
 
-        let mut y = *y;
         let mut y_value = y[self.column_index];
         for (row_index, &eta_coefficient) in self.eta_column.iter().enumerate() {
             if row_index != self.column_index {
@@ -453,7 +452,7 @@ where
 
         y[self.column_index] = y_value / pivot_value;
 
-        Ok(Box::new(y))
+        Ok(y)
     }
 }
 
@@ -469,7 +468,7 @@ where
 {
     type Error = EtaMatrixRightSolveError;
 
-    fn right_solve(&self, d: Box<DenseColumn<T>>) -> Result<Box<DenseColumn<T>>, Self::Error> {
+    fn right_solve(&self, mut d: DenseColumn<T>) -> Result<DenseColumn<T>, Self::Error> {
         if self.size() != d.len() {
             return Err(InvalidColumnCountError::new(self.size(), d.len()).into());
         }
@@ -479,7 +478,6 @@ where
             return Err(EtaMatrixRightSolveError::SingularMatrix);
         }
 
-        let mut d = *d;
         d[self.column_index] /= pivot_value;
         let normalized_value = d[self.column_index];
 
@@ -489,7 +487,7 @@ where
             }
         }
 
-        Ok(Box::new(d))
+        Ok(d)
     }
 }
 
@@ -583,7 +581,7 @@ mod tests {
 
         // Create the vector.
         // |  5  6  7  8  |
-        let a = Box::new(DenseRow::from_vec(vec![5.0, 6.0, 7.0, 8.0]));
+        let a = DenseRow::from_vec(vec![5.0, 6.0, 7.0, 8.0]);
 
         // Solve the system:
         // |  d_0  d_1  d_2  d_3  | |  1  0  3  0  |   |  5  |
@@ -597,7 +595,7 @@ mod tests {
         let expected_x = DenseRow::from_vec(vec![5.0, 6.0, -44.0, 8.0]);
 
         // Assert that the solution is correct.
-        assert_eq!(*d, expected_x);
+        assert_eq!(d, expected_x);
     }
 
     #[test]
@@ -615,7 +613,7 @@ mod tests {
         // | 6 |
         // | 7 |
         // | 8 |
-        let a = Box::new(DenseColumn::from_vec(vec![5.0, 6.0, 7.0, 8.0]));
+        let a = DenseColumn::from_vec(vec![5.0, 6.0, 7.0, 8.0]);
 
         // Solve the system:
         // |  1  0  3  0  | | d_0 |   | 5 |
@@ -632,7 +630,7 @@ mod tests {
         let expected_d = DenseColumn::from_vec(vec![-5.5, -8.0, 3.5, -16.5]);
 
         // Assert the result is as expected.
-        assert_eq!(*d, expected_d);
+        assert_eq!(d, expected_d);
     }
 
     #[test]
