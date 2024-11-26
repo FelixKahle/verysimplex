@@ -20,7 +20,7 @@
 
 #![allow(dead_code)]
 
-use nalgebra::{DVector, RowDVector, Scalar};
+use nalgebra::{DVector, Dyn, RowDVector, Scalar, U1};
 
 /// A type alias for a dense column vector from the `nalgebra` library.
 ///
@@ -52,21 +52,15 @@ pub trait IntoDenseRow<T> {
 
 impl<T: Scalar> IntoDenseColumn<T> for DenseRow<T> {
     fn into_dense_column(self) -> DenseColumn<T> {
-        unsafe {
-            let vec = std::ptr::read(&self.data as *const _ as *const Vec<T>);
-            std::mem::forget(self);
-            DenseColumn::from_vec(vec)
-        }
+        let nrows = Dyn(self.ncols());
+        self.reshape_generic(nrows, U1)
     }
 }
 
 impl<T: Scalar> IntoDenseRow<T> for DenseColumn<T> {
     fn into_dense_row(self) -> DenseRow<T> {
-        unsafe {
-            let vec = std::ptr::read(&self.data as *const _ as *const Vec<T>);
-            std::mem::forget(self);
-            DenseRow::from_vec(vec)
-        }
+        let ncols: Dyn = Dyn(self.nrows());
+        self.reshape_generic(U1, ncols)
     }
 }
 
