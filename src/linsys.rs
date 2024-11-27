@@ -45,6 +45,7 @@ pub trait LeftSolve<T> {
 /// # Type Parameters
 /// - `T`: Type of the elements of the linear system.
 pub trait RightSolve<T> {
+    /// Error type of the linear system.
     type Error;
 
     /// Solves the linear system `self * x = b`, where `x` is the unknown to be determined.

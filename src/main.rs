@@ -23,6 +23,7 @@ mod etam;
 mod idx;
 mod linerr;
 mod linsys;
+mod lu;
 
 fn main() {
     println!("Hello, world!");

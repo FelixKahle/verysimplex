@@ -26,3 +26,4 @@ edition = "2021"
 [dependencies]
 num-traits = "0.2.19"
 nalgebra = "0.33.2"
+approx = "0.5.1"
